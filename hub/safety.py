@@ -221,7 +221,7 @@ def retry(attempts: int = 3, base_delay: float = 0.5, max_delay: float = 8.0,
 def _emit(ok: bool, action: str, data=None, error: str | None = None) -> None:
     print(json.dumps(
         {"ok": ok, "action": action, "data": data, "error": error},
-        ensure_ascii=False,
+        ensure_ascii=True,  # survives cp1252 consoles; parsers decode \uXXXX
     ))
     sys.exit(0 if ok else 1)
 

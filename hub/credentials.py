@@ -229,7 +229,7 @@ def get_provider(name: str | None = None) -> CredentialProvider:
 def _emit(ok: bool, action: str, data=None, error: str | None = None) -> None:
     print(json.dumps(
         {"ok": ok, "action": action, "data": data, "error": error},
-        ensure_ascii=False,
+        ensure_ascii=True,  # survives cp1252 consoles; parsers decode \uXXXX
     ))
     sys.exit(0 if ok else 1)
 
