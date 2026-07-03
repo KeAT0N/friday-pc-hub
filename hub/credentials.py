@@ -8,20 +8,28 @@ and never cross a process boundary. The CLI here can only answer existence
 and availability questions — there is intentionally no code path that writes
 a secret value to stdout, stderr, logs, or JSON.
 
-Backends are selected by name (or HUB_CRED_PROVIDER env var). Only the
-NullProvider placeholder is enabled today; the env-var and Windows Credential
-Manager (keyring) backends are wired into the registry but raise
-ProviderUnavailable until green-lit.
+Backends are selected by name (or HUB_CRED_PROVIDER env var). Active:
+`null` (placeholder) and `keyring` (Windows Credential Manager via DPAPI,
+per-user, at rest). `env` remains gated until green-lit.
+
+Enrollment happens ONLY at the PC's own terminal: `enroll` requires an
+interactive TTY and reads the secret through a hidden getpass prompt, so
+secret values never appear in chat logs, argv, process lists, or shell
+history. Orchestration channels (non-TTY stdin) are refused fail-closed.
 
 CLI:
     providers                                   backend registry + availability
     check --service S [--account A] [--provider P]   existence only, never values
+    enroll --service S [--account A] [--provider P] [--stdin]   local TTY only
+    unenroll --service S [--account A] [--provider P]
     selftest                                    prove Secret cannot leak
+    keyring-selftest                            canary round-trip, cleans up
 """
 
 from __future__ import annotations
 
 import argparse
+import getpass
 import hmac
 import json
 import os
@@ -183,25 +191,59 @@ class EnvProvider(CredentialProvider):
         raise ProviderUnavailable("env backend not yet enabled")
 
 
-class KeyringProvider(CredentialProvider):
-    """NOT YET ENABLED. Contract for Windows Credential Manager via `keyring`.
+def _keyring():
+    """Lazy import so the module works without the library installed."""
+    try:
+        import keyring
+        import keyring.errors  # noqa: F401  (loaded for exception types)
+        return keyring
+    except ImportError as e:
+        raise ProviderUnavailable(
+            "keyring library not installed (pip install keyring)") from e
 
-    Will map (service, account) -> keyring.get_password(f"hub:{service}", account).
-    Secrets stay DPAPI-encrypted at rest, scoped to the Windows user. This is
-    the intended production backend; supports set/delete for enrollment.
+
+class KeyringProvider(CredentialProvider):
+    """Windows Credential Manager via `keyring` (production backend).
+
+    Maps (service, account) -> keyring entry "hub:{service}" / account.
+    Secrets are DPAPI-encrypted at rest, scoped to the Windows user account.
+    Writable: supports set/delete for the local enrollment flow.
     """
 
     name = "keyring"
+    _PREFIX = "hub:"
 
     @classmethod
     def available(cls) -> bool:
-        return False  # flip when green-lit (requires `pip install keyring`)
+        try:
+            backend = _keyring().get_keyring()
+        except CredentialError:
+            return False
+        return "fail" not in type(backend).__module__  # fail.Keyring = no store
 
     def get(self, service: str, account: str = DEFAULT_ACCOUNT) -> Secret:
-        raise ProviderUnavailable("keyring backend not yet enabled")
+        value = _keyring().get_password(self._PREFIX + service, account)
+        if value is None:
+            raise CredentialNotFound(
+                f"no credential for service={service!r} account={account!r} "
+                "in Windows Credential Manager")
+        return Secret(value)
 
     def exists(self, service: str, account: str = DEFAULT_ACCOUNT) -> bool:
-        raise ProviderUnavailable("keyring backend not yet enabled")
+        return _keyring().get_password(self._PREFIX + service, account) is not None
+
+    def set(self, service: str, account: str, secret: Secret) -> None:
+        if not isinstance(secret, Secret):
+            raise TypeError("set() accepts only a Secret, never a bare str")
+        _keyring().set_password(self._PREFIX + service, account, secret.reveal())
+
+    def delete(self, service: str, account: str = DEFAULT_ACCOUNT) -> None:
+        import keyring.errors
+        try:
+            _keyring().delete_password(self._PREFIX + service, account)
+        except keyring.errors.PasswordDeleteError:
+            raise CredentialNotFound(
+                f"nothing enrolled for service={service!r} account={account!r}")
 
 
 # ---------------------------------------------------------------- registry
@@ -221,6 +263,100 @@ def get_provider(name: str | None = None) -> CredentialProvider:
     if not cls.available():
         raise ProviderUnavailable(f"provider {name!r} is not enabled/available")
     return cls()
+
+
+# ---------------------------------------------------------------- enrollment
+
+def _read_secret_locally(args) -> Secret:
+    """Acquire the secret from the local terminal only — never from argv,
+    never from an orchestration channel.
+
+    Default path demands an interactive TTY (hidden getpass prompt to stderr).
+    --stdin allows piping from another local process for scripted enrollment.
+    """
+    if args.stdin:
+        if sys.stdin.isatty():
+            raise CredentialError(
+                "--stdin given but stdin is a terminal; pipe the secret in "
+                "or drop --stdin for the hidden prompt")
+        value = sys.stdin.readline().strip()
+    else:
+        if not sys.stdin.isatty():
+            raise CredentialError(
+                "enroll requires an interactive terminal so the secret is "
+                "typed into a hidden prompt, not passed through an "
+                "orchestration channel. Open a terminal on the PC and run: "
+                f"python hub\\credentials.py enroll --service {args.service} "
+                f"--account {args.account}")
+        value = getpass.getpass(
+            f"secret for {args.service}/{args.account} (input hidden): ").strip()
+    if not value:
+        raise CredentialError("empty secret; nothing stored")
+    return Secret(value)
+
+
+def _writable_provider(name: str) -> CredentialProvider:
+    provider = get_provider(name)
+    if type(provider).set is CredentialProvider.set:
+        raise CredentialError(f"provider {provider.name!r} is read-only")
+    return provider
+
+
+def _enroll(args) -> None:
+    provider = _writable_provider(args.provider)
+    secret = _read_secret_locally(args)
+    provider.set(args.service, args.account, secret)
+    # verify round-trip in-process; constant-time compare, value never emitted
+    verified = provider.exists(args.service, args.account) and \
+        provider.get(args.service, args.account) == secret
+    _emit(bool(verified), "enroll", data={
+        "provider": provider.name, "service": args.service,
+        "account": args.account, "stored": True, "verified": bool(verified),
+    }, error=None if verified else "stored but read-back verification failed")
+
+
+def _unenroll(args) -> None:
+    provider = _writable_provider(args.provider)
+    provider.delete(args.service, args.account)
+    _emit(True, "unenroll", data={
+        "provider": provider.name, "service": args.service,
+        "account": args.account, "deleted": True,
+    })
+
+
+def _keyring_selftest() -> None:
+    """Full round-trip against the real vault with a random canary; cleans up.
+
+    The canary is generated in-process and never printed — only booleans leave.
+    """
+    import secrets as _secrets
+    provider = get_provider("keyring")
+    service, account = "selftest", f"canary-{os.getpid()}"
+    canary = Secret(_secrets.token_urlsafe(24))
+    failures: list[str] = []
+    try:
+        provider.set(service, account, canary)
+        if not provider.exists(service, account):
+            failures.append("stored but exists() is false")
+        if provider.get(service, account) != canary:
+            failures.append("round-trip value mismatch")
+    finally:
+        try:
+            provider.delete(service, account)
+        except CredentialNotFound:
+            failures.append("cleanup found nothing to delete")
+    if provider.exists(service, account):
+        failures.append("canary survived delete")
+    try:
+        provider.get(service, account)
+        failures.append("get after delete did not raise")
+    except CredentialNotFound:
+        pass
+    _emit(not failures, "keyring-selftest",
+          data={"backend": "WinVaultKeyring",
+                "checked": ["set", "exists", "get round-trip (constant-time)",
+                            "delete", "not-found after delete"]},
+          error="; ".join(failures) or None)
 
 
 # ---------------------------------------------------------------- cli
@@ -269,11 +405,24 @@ def main() -> None:
 
     sub.add_parser("providers")
     sub.add_parser("selftest")
+    sub.add_parser("keyring-selftest")
 
     c = sub.add_parser("check")
     c.add_argument("--service", required=True)
     c.add_argument("--account", default=DEFAULT_ACCOUNT)
     c.add_argument("--provider")
+
+    e = sub.add_parser("enroll")
+    e.add_argument("--service", required=True)
+    e.add_argument("--account", default=DEFAULT_ACCOUNT)
+    e.add_argument("--provider", default="keyring")
+    e.add_argument("--stdin", action="store_true",
+                   help="read secret from piped stdin (scripted local enrollment)")
+
+    u = sub.add_parser("unenroll")
+    u.add_argument("--service", required=True)
+    u.add_argument("--account", default=DEFAULT_ACCOUNT)
+    u.add_argument("--provider", default="keyring")
 
     args = p.parse_args()
     try:
@@ -286,6 +435,12 @@ def main() -> None:
             ])
         elif args.action == "selftest":
             _selftest()
+        elif args.action == "keyring-selftest":
+            _keyring_selftest()
+        elif args.action == "enroll":
+            _enroll(args)
+        elif args.action == "unenroll":
+            _unenroll(args)
         elif args.action == "check":
             provider = get_provider(args.provider)
             _emit(True, "check", data={

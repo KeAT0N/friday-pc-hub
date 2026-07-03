@@ -122,13 +122,25 @@ window survives (unsaved-changes dialog), it refuses unless rerun with
 ```
 python hub\credentials.py providers
 python hub\credentials.py check --service S [--account A] [--provider P]
-python hub\credentials.py selftest
+python hub\credentials.py enroll --service S [--account A] [--stdin]
+python hub\credentials.py unenroll --service S [--account A]
+python hub\credentials.py selftest | keyring-selftest
 ```
 
 In-process use: `get_provider().get(service, account) -> Secret` →
-`.reveal()` only at the point of use. Backends: `null` (active),
-`env` and `keyring` (Windows Credential Manager/DPAPI) registered but
-hard-disabled until green-lit. Selection: arg > `HUB_CRED_PROVIDER` > null.
+`.reveal()` only at the point of use. Backends: `null` (placeholder) and
+`keyring` (Windows Credential Manager, DPAPI at rest, per-user) are active;
+`env` stays gated until green-lit. Selection: arg > `HUB_CRED_PROVIDER` > null.
+
+**Enrollment is local-terminal-only by construction.** `enroll` demands an
+interactive TTY and reads the secret via hidden getpass prompt; run through
+an orchestration channel (non-TTY stdin) it refuses and prints the command
+to run at the PC instead. Secrets therefore never appear in chat logs, argv,
+process lists, or shell history. `--stdin` permits piping from another local
+process for scripted enrollment. Verification is an in-process constant-time
+read-back compare; only booleans are emitted. `keyring-selftest` proves the
+vault round-trip with a random canary that is generated, compared, and
+deleted without ever being printed.
 
 ### hub/system.py — read-only telemetry
 
