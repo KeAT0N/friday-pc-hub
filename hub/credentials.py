@@ -20,7 +20,8 @@ history. Orchestration channels (non-TTY stdin) are refused fail-closed.
 CLI:
     providers                                   backend registry + availability
     check --service S [--account A] [--provider P]   existence only, never values
-    enroll --service S [--account A] [--provider P] [--stdin]   local TTY only
+    enroll --service S [--account A] [--provider P] [--stdin]
+           [--expect-format app-password|<regex>]                local TTY only
     unenroll --service S [--account A] [--provider P]
     selftest                                    prove Secret cannot leak
     keyring-selftest                            canary round-trip, cleans up
@@ -33,6 +34,7 @@ import getpass
 import hmac
 import json
 import os
+import re
 import sys
 from abc import ABC, abstractmethod
 
@@ -44,6 +46,13 @@ except ImportError:
 REDACTED = "Secret(<redacted>)"
 DEFAULT_ACCOUNT = "default"
 ENV_SELECTOR = "HUB_CRED_PROVIDER"
+
+# Named shape checks for --expect-format. A value that fails is never stored.
+# Validation happens in-process against the shape only; the secret is never
+# printed. Unknown names are treated as a literal (full-match) regex.
+FORMAT_PATTERNS = {
+    "app-password": r"[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}",  # iCloud xxxx-xxxx-...
+}
 
 
 class CredentialError(Exception):
@@ -279,7 +288,9 @@ def _read_secret_locally(args) -> Secret:
             raise CredentialError(
                 "--stdin given but stdin is a terminal; pipe the secret in "
                 "or drop --stdin for the hidden prompt")
-        value = sys.stdin.readline().strip()
+        # Read raw bytes and strip a UTF-8 BOM (PowerShell and some editors
+        # prepend one when piping) so it never becomes part of the secret.
+        value = sys.stdin.buffer.readline().decode("utf-8-sig", errors="replace").strip()
     else:
         if not sys.stdin.isatty():
             raise CredentialError(
@@ -302,9 +313,27 @@ def _writable_provider(name: str) -> CredentialProvider:
     return provider
 
 
+def _format_error(secret: Secret, spec: str) -> str | None:
+    """Return an error string if the secret's shape fails `spec`, else None.
+    Only the shape is examined; the secret value is never emitted."""
+    pattern = FORMAT_PATTERNS.get(spec, spec)
+    try:
+        rx = re.compile(pattern)
+    except re.error as e:
+        return f"invalid --expect-format regex {spec!r}: {e}"
+    if not rx.fullmatch(secret.reveal()):
+        return (f"secret does not match expected format {spec!r} "
+                f"(known: {', '.join(sorted(FORMAT_PATTERNS))}); nothing stored")
+    return None
+
+
 def _enroll(args) -> None:
     provider = _writable_provider(args.provider)
     secret = _read_secret_locally(args)
+    if args.expect_format:  # fail-closed: validate shape BEFORE storing
+        err = _format_error(secret, args.expect_format)
+        if err:
+            raise CredentialError(err)
     provider.set(args.service, args.account, secret)
     # verify round-trip in-process; constant-time compare, value never emitted
     verified = provider.exists(args.service, args.account) and \
@@ -418,6 +447,9 @@ def main() -> None:
     e.add_argument("--provider", default="keyring")
     e.add_argument("--stdin", action="store_true",
                    help="read secret from piped stdin (scripted local enrollment)")
+    e.add_argument("--expect-format",
+                   help="named format (app-password) or a regex; refuse to "
+                        "store if the secret does not fully match")
 
     u = sub.add_parser("unenroll")
     u.add_argument("--service", required=True)

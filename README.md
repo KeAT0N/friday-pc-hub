@@ -122,7 +122,7 @@ window survives (unsaved-changes dialog), it refuses unless rerun with
 ```
 python hub\credentials.py providers
 python hub\credentials.py check --service S [--account A] [--provider P]
-python hub\credentials.py enroll --service S [--account A] [--stdin]
+python hub\credentials.py enroll --service S [--account A] [--stdin] [--expect-format F]
 python hub\credentials.py unenroll --service S [--account A]
 python hub\credentials.py selftest | keyring-selftest
 ```
@@ -137,8 +137,12 @@ interactive TTY and reads the secret via hidden getpass prompt; run through
 an orchestration channel (non-TTY stdin) it refuses and prints the command
 to run at the PC instead. Secrets therefore never appear in chat logs, argv,
 process lists, or shell history. `--stdin` permits piping from another local
-process for scripted enrollment. Verification is an in-process constant-time
-read-back compare; only booleans are emitted. `keyring-selftest` proves the
+process for scripted enrollment (BOM-stripped so a shell-injected byte-order
+mark never becomes part of the secret). `--expect-format` validates the
+secret's shape before storing (named `app-password` = iCloud
+`xxxx-xxxx-xxxx-xxxx`, or a custom full-match regex) and refuses to store a
+mismatch — nothing is written and the value is never printed. Verification is
+an in-process constant-time read-back compare; only booleans are emitted. `keyring-selftest` proves the
 vault round-trip with a random canary that is generated, compared, and
 deleted without ever being printed.
 
