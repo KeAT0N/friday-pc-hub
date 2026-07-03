@@ -1,3 +1,4 @@
 keyring>=24
 psutil>=5.9
 pywin32>=306
+winotify>=1.1

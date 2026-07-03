@@ -154,6 +154,17 @@ Notes: process CPU is normalized to whole-machine percent (Task-Manager
 style); System Idle Process (pid 0) is excluded — it measures idleness and
 poisons "wait until quiet" predicates. Fixed bounded sampling windows.
 
+### hub/notify.py — desktop notifications (write-only)
+
+```
+python hub\notify.py send --title T --message M [--duration short|long] [--silent]
+```
+
+Notes: native Windows toasts (winotify/WinRT) under app id "Remote Hub".
+Title/message are control-char-stripped and clamped (64/512 chars, honest
+`truncated` flags); the show call is deadline-bounded (10s) so a wedged
+toast pipeline cannot hang the hub.
+
 ### hub/files.py — contained file access
 
 ```
