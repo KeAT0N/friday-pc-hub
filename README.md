@@ -194,21 +194,42 @@ mailbox can't flood context. `send` is fail-closed: validates addresses
 before every IMAP/SMTP handshake; all sockets carry a 20s timeout.
 Orchestration rule: an actual send is confirmed with the user in chat first.
 
-### hub/friday.py — FRIDAY boot orchestrator (command router)
+### hub/friday.py — FRIDAY orchestrator (router + scenes)
 
 ```
-python -m hub.friday boot --profile dev [--no-mail] [--dry-run]
+python -m hub.friday boot    --profile dev  [--no-mail] [--dry-run]
+python -m hub.friday trigger sit-down       [--dry-run]
+python -m hub.friday trigger chill          [--dry-run]
 ```
 
-Composes the tested module CLIs into a deterministic boot routine — not a
-sensor, not LLM logic. Profiles are DATA in `hub/profiles.json`
-(`requires: [...]` + `launch: [{type: code|app|url, ...}]`); editing a profile
-never touches code. Pipeline is fail-closed and ordered: (0) kill-switch gate,
-(1) offline vault audit — a missing *required* credential aborts before any
-launch, (2) quiet unread counts per provider (fail-soft, `--no-mail` skips),
-(3) launch each entry (folder/target validated first; failures reported, rest
-continue). stdout is the JSON envelope; stderr is live `[FRIDAY]` narration.
-Exit: 0 clean · 1 aborted · 2 booted-degraded. `--dry-run` prints the plan.
+Composes the tested module CLIs into deterministic routines — not a sensor,
+not LLM logic. Profiles are DATA in `hub/profiles.json`; editing one never
+touches code. Profile keys: `requires` (offline vault preconditions),
+`launch` (`{type: code|app|url}`), `wipe` (`{protect: [...]}`), `smart_home`
+(`{wemo: {device, action}}`).
+
+`boot` pipeline (fail-closed, ordered): kill-switch gate → offline vault audit
+(missing *required* cred aborts before any launch) → quiet unread counts per
+provider (fail-soft, `--no-mail` skips) → launch each entry.
+
+`trigger` pipeline: gate → vault → **safe wipe** → launch → smart-home.
+
+**Safe wipe** graceful-closes visible top-level windows via WM_CLOSE only —
+**never `--force`**, so a window with unsaved changes survives and is reported
+as kept, never killed. Two protection layers exempt a window: the profile's
+`protect` patterns (matched against process name AND title) plus an always-on
+`SELF_PROTECT` list (Claude, VS Code, the shell/terminal, python, Windows
+shell). A window closes only if it matches neither. A scene protects what it
+launches (e.g. `sit-down` protects `fortnite`/`epic`) so its own wipe can't
+kill it.
+
+**Smart-home** is a local UPnP layer via `pywemo` (SSDP discovery + toggle),
+lazy-imported and fail-soft — inert until `pip install pywemo`, then `chill`
+discovers and toggles the named Wemo switch on the LAN.
+
+stdout = JSON envelope; stderr = live `[FRIDAY]` narration.
+Exit: 0 clean · 1 aborted · 2 degraded. `--dry-run` shows the full plan
+(including which windows the wipe would close vs protect) without acting.
 
 ### hub/files.py — contained file access
 

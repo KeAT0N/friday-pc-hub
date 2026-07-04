@@ -6,5 +6,20 @@
       {"type": "app", "target": "wt.exe"},
       {"type": "url", "target": "https://github.com/notifications"}
     ]
+  },
+  "sit-down": {
+    "requires": [],
+    "wipe": {"protect": ["claude", "code", "fortnite", "epic"]},
+    "launch": [
+      {"type": "app", "label": "Fortnite (Epic)",
+       "target": "C:\\Program Files\\Epic Games\\Launcher\\Portal\\Binaries\\Win64\\EpicGamesLauncher.exe"}
+    ]
+  },
+  "chill": {
+    "requires": [],
+    "launch": [
+      {"type": "url", "label": "Spotify", "target": "spotify:"}
+    ],
+    "smart_home": {"wemo": {"device": "Room Light", "action": "toggle"}}
   }
 }
