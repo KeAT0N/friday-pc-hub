@@ -1,0 +1,10 @@
+{
+  "dev": {
+    "requires": ["github", "gmail", "icloud_mail"],
+    "launch": [
+      {"type": "code", "path": "C:\\Users\\coold\\Desktop\\Claude"},
+      {"type": "app", "target": "wt.exe"},
+      {"type": "url", "target": "https://github.com/notifications"}
+    ]
+  }
+}

@@ -164,6 +164,20 @@ def do_check(args) -> None:
                               "inbox_total": total})
 
 
+def do_count(args) -> None:
+    """Quiet unread count: SEARCH UNSEEN only, zero header/body fetch."""
+    M = _imap_login()
+    try:
+        typ, data = M.select("INBOX", readonly=True)
+        total = int(data[0]) if typ == "OK" and data and data[0] else 0
+        typ, sdata = M.uid("search", None, "UNSEEN")
+        unread = len(sdata[0].split()) if sdata and sdata[0] else 0
+    finally:
+        M.logout()
+    emit(True, "count", data={"provider": CFG.provider,
+                              "inbox_total": total, "unread": unread})
+
+
 def do_mailboxes(args) -> None:
     M = _imap_login()
     try:
@@ -301,6 +315,7 @@ def main() -> None:
     common.add_argument("--cred-account")
 
     sub.add_parser("check", parents=[common])
+    sub.add_parser("count", parents=[common])
     sub.add_parser("mailboxes", parents=[common])
 
     u = sub.add_parser("unread", parents=[common])
@@ -321,8 +336,8 @@ def main() -> None:
     args = p.parse_args()
     global CFG
     CFG = resolve_config(args)
-    handler = {"check": do_check, "mailboxes": do_mailboxes, "unread": do_unread,
-               "read": do_read, "send": do_send}[args.action]
+    handler = {"check": do_check, "count": do_count, "mailboxes": do_mailboxes,
+               "unread": do_unread, "read": do_read, "send": do_send}[args.action]
     try:
         assert_alive(f"mail.{args.action}")
         handler(args)

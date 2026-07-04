@@ -175,6 +175,7 @@ Multi-provider: `--provider icloud|gmail` (icloud default) on every subcommand.
 
 ```
 python hub\mail.py check     [--provider P]
+python hub\mail.py count     [--provider P]   # quiet unread count, no headers
 python hub\mail.py mailboxes [--provider P]
 python hub\mail.py unread    [--provider P] [--limit N]
 python hub\mail.py read      [--provider P] --uid U [--mailbox M] [--max-chars N]
@@ -192,6 +193,22 @@ mailbox can't flood context. `send` is fail-closed: validates addresses
 `--confirm-send` — default is a dry-run preview. Kill-switch is asserted
 before every IMAP/SMTP handshake; all sockets carry a 20s timeout.
 Orchestration rule: an actual send is confirmed with the user in chat first.
+
+### hub/friday.py — FRIDAY boot orchestrator (command router)
+
+```
+python -m hub.friday boot --profile dev [--no-mail] [--dry-run]
+```
+
+Composes the tested module CLIs into a deterministic boot routine — not a
+sensor, not LLM logic. Profiles are DATA in `hub/profiles.json`
+(`requires: [...]` + `launch: [{type: code|app|url, ...}]`); editing a profile
+never touches code. Pipeline is fail-closed and ordered: (0) kill-switch gate,
+(1) offline vault audit — a missing *required* credential aborts before any
+launch, (2) quiet unread counts per provider (fail-soft, `--no-mail` skips),
+(3) launch each entry (folder/target validated first; failures reported, rest
+continue). stdout is the JSON envelope; stderr is live `[FRIDAY]` narration.
+Exit: 0 clean · 1 aborted · 2 booted-degraded. `--dry-run` prints the plan.
 
 ### hub/files.py — contained file access
 
