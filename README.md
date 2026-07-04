@@ -200,6 +200,7 @@ Orchestration rule: an actual send is confirmed with the user in chat first.
 python -m hub.friday boot    --profile dev  [--no-mail] [--dry-run]
 python -m hub.friday trigger sit-down       [--dry-run]
 python -m hub.friday trigger chill          [--dry-run]
+python -m hub.friday trigger optimize       [--dry-run]
 ```
 
 Composes the tested module CLIs into deterministic routines — not a sensor,
@@ -226,6 +227,20 @@ kill it.
 **Smart-home** is a local UPnP layer via `pywemo` (SSDP discovery + toggle),
 lazy-imported and fail-soft — inert until `pip install pywemo`, then `chill`
 discovers and toggles the named Wemo switch on the LAN.
+
+**optimize** is a max-cleanup scene: a read-only top-consumers `report`
+(RAM/CPU via system.py) then an **aggressive window wipe** (`protect: []`, so
+only `SELF_PROTECT` survives). It is deliberately **window-scoped, not
+process-table-scoped** — killing every process outside a small allowlist would
+terminate `svchost`/`lsass`/drivers/AV and crash Windows without freeing
+reclaimable RAM, so FRIDAY never does that.
+
+**RGB** (`rgb: green|red|purple|orange|<hex>`) sets Alienware zones via an
+AlienFX/AWCC controller. AWCC exposes no stable public color CLI, so this is a
+fail-soft scaffold: it resolves a controller (`HUB_ALIENFX_CLI`), runs a
+bounded call with an overridable arg template (`HUB_ALIENFX_ARGS`), and reports
+**inert** if none is found — never fatal, never hangs. Runs last so lighting
+matches the active scene.
 
 stdout = JSON envelope; stderr = live `[FRIDAY]` narration.
 Exit: 0 clean · 1 aborted · 2 degraded. `--dry-run` shows the full plan

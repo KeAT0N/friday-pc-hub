@@ -1,6 +1,7 @@
 {
   "dev": {
     "requires": ["github", "gmail", "icloud_mail"],
+    "rgb": "green",
     "launch": [
       {"type": "code", "path": "C:\\Users\\coold\\Desktop\\Claude"},
       {"type": "app", "target": "wt.exe"},
@@ -9,6 +10,7 @@
   },
   "sit-down": {
     "requires": [],
+    "rgb": "red",
     "wipe": {"protect": ["claude", "code", "fortnite", "epic"]},
     "launch": [
       {"type": "app", "label": "Fortnite (Epic)",
@@ -17,9 +19,16 @@
   },
   "chill": {
     "requires": [],
+    "rgb": "purple",
     "launch": [
       {"type": "url", "label": "Spotify", "target": "spotify:"}
     ],
     "smart_home": {"wemo": {"device": "Room Light", "action": "toggle"}}
+  },
+  "optimize": {
+    "requires": [],
+    "rgb": "orange",
+    "report": {"top": 8},
+    "wipe": {"protect": []}
   }
 }

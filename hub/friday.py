@@ -49,6 +49,22 @@ MODULE_TIMEOUT = 45.0
 CLOSE_TIMEOUT = 6
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+# RGB / AlienFX. AWCC has no stable public color CLI, so this stays a
+# fail-soft scaffold: resolve a controller, attempt a bounded call, else inert.
+# Override the binary and arg template via env to wire the real control path.
+RGB_TIMEOUT = 10.0
+ALIENFX_CLI_ENV = "HUB_ALIENFX_CLI"
+ALIENFX_ARGS_ENV = "HUB_ALIENFX_ARGS"
+ALIENFX_CANDIDATES = (
+    r"C:\Program Files\Dell\AlienFX\AlienFX.exe",
+    r"C:\Program Files\Alienware\Command Center\AWCC.exe",
+    r"C:\Program Files\Dell\CommandCenter\AWCC.exe",
+)
+RGB_THEMES = {
+    "green": "00FF00", "red": "FF0000", "purple": "800080", "orange": "FF7A00",
+    "blue": "0000FF", "cyan": "00FFFF", "white": "FFFFFF", "off": "000000",
+}
+
 # Always protected from a wipe, regardless of profile — the developer
 # environment, the orchestrator's own process, the shell it runs in, and the
 # Windows shell. Belt-and-suspenders on top of profile `protect` patterns.
@@ -281,6 +297,80 @@ def smart_home(spec: dict | None, dry_run: bool) -> dict | None:
         return {"wemo": {**base, "ok": False, "error": f"{type(e).__name__}: {e}"}}
 
 
+# ---------------------------------------------------------------- resource report
+
+def resource_report(spec: dict | None, dry_run: bool) -> dict | None:
+    """Read-only snapshot of the heaviest processes (RAM + CPU) so an
+    optimize pass can show the win. Always safe — never mutates anything."""
+    if not spec:
+        return None
+    n = str(spec.get("top", 8))
+    mem = run_module("system", ["top", "--by", "memory", "--count", n])
+    cpu = run_module("system", ["top", "--by", "cpu", "--count", n])
+    return {
+        "top_memory": mem["data"] if mem.get("ok") else {"error": mem.get("error")},
+        "top_cpu": cpu["data"] if cpu.get("ok") else {"error": cpu.get("error")},
+    }
+
+
+def narrate_report(report: dict) -> None:
+    mem = report.get("top_memory")
+    if isinstance(mem, list) and mem:
+        log("report: top RAM -> " + ", ".join(
+            f"{r['name']} {r['memory_mb']}MB" for r in mem[:3]))
+
+
+# ---------------------------------------------------------------- rgb / alienfx
+
+def _resolve_alienfx() -> str | None:
+    override = os.environ.get(ALIENFX_CLI_ENV)
+    if override:
+        return override if os.path.isfile(override) else None
+    return next((c for c in ALIENFX_CANDIDATES if os.path.isfile(c)), None)
+
+
+def apply_rgb(rgb, dry_run: bool) -> dict | None:
+    """Set hardware RGB zones to a theme/color via the AlienFX controller.
+    Fail-soft scaffold: inert (reported, never fatal) if no controller is
+    found or the call errors; bounded by RGB_TIMEOUT so it can't hang FRIDAY."""
+    if not rgb:
+        return None
+    color = RGB_THEMES.get(str(rgb).lower(), str(rgb))
+    base = {"theme": rgb, "color": color}
+    if dry_run:
+        return {"rgb": {**base, "ok": None, "dry_run": True,
+                        "note": "would set AlienFX zones"}}
+
+    cli = _resolve_alienfx()
+    if not cli:
+        return {"rgb": {**base, "ok": False,
+                        "error": "AlienFX/AWCC controller not found - RGB layer "
+                                 f"inert (set {ALIENFX_CLI_ENV} to enable)"}}
+    tmpl = os.environ.get(ALIENFX_ARGS_ENV, "--zone all --color {color}")
+    argv = [cli, *tmpl.format(color=color).split()]
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True,
+                           timeout=RGB_TIMEOUT, cwd=str(REPO))
+        ok = p.returncode == 0
+        return {"rgb": {**base, "cli": os.path.basename(cli),
+                        "returncode": p.returncode, "ok": ok,
+                        "error": None if ok else
+                        (p.stderr.strip()[:160] or f"exit {p.returncode}")}}
+    except subprocess.TimeoutExpired:
+        return {"rgb": {**base, "ok": False,
+                        "error": f"AlienFX call timed out after {RGB_TIMEOUT}s"}}
+    except OSError as e:
+        return {"rgb": {**base, "ok": False, "error": f"{type(e).__name__}: {e}"}}
+
+
+def narrate_rgb(rgb_res: dict | None, dry_run: bool) -> None:
+    if rgb_res is None:
+        return
+    r = rgb_res["rgb"]
+    state = "PLAN" if dry_run else ("OK" if r["ok"] else f"inert ({r.get('error')})")
+    log(f"rgb: {r['theme']} (#{r['color']}) -> {state}")
+
+
 # ---------------------------------------------------------------- entrypoints
 
 def boot(args) -> None:
@@ -299,15 +389,19 @@ def boot(args) -> None:
             else f"{p} ERR ({i['error']})" for p, i in mail.items()))
 
     launches = run_launches(profile.get("launch", []), args.dry_run)
+    rgb = apply_rgb(profile.get("rgb"), args.dry_run)
+    narrate_rgb(rgb, args.dry_run)
 
     elapsed = round(time.monotonic() - t0, 1)
     degraded = (bool(mail) and any("error" in v for v in mail.values())) \
-        or any(l.get("ok") is False for l in launches)
+        or any(l.get("ok") is False for l in launches) \
+        or (rgb is not None and rgb["rgb"].get("ok") is False)
     log(f"booted '{args.profile}' in {elapsed}s" + (" (DEGRADED)" if degraded else ""))
     emit(not degraded, code=2 if degraded else 0,
          error="degraded: one or more steps failed" if degraded else None,
          data={"profile": args.profile, "preflight": vault or None, "mail": mail,
-               "launches": launches, "elapsed_sec": elapsed, "dry_run": args.dry_run})
+               "launches": launches, "rgb": rgb, "elapsed_sec": elapsed,
+               "dry_run": args.dry_run})
 
 
 def trigger(args) -> None:
@@ -315,6 +409,10 @@ def trigger(args) -> None:
     profile = load_profile(args.profile)
     gate(args.profile)
     vault = require_credentials(args.profile, profile.get("requires", []))
+
+    report = resource_report(profile.get("report"), args.dry_run)
+    if report is not None:
+        narrate_report(report)
 
     wipe = None
     if profile.get("wipe"):
@@ -332,15 +430,20 @@ def trigger(args) -> None:
         state = "PLAN" if args.dry_run else ("OK" if w["ok"] else f"SKIP ({w.get('error')})")
         log(f"smart-home: wemo '{w['device']}' {w['action']} -> {state}")
 
+    rgb = apply_rgb(profile.get("rgb"), args.dry_run)
+    narrate_rgb(rgb, args.dry_run)
+
     elapsed = round(time.monotonic() - t0, 1)
     degraded = any(l.get("ok") is False for l in launches) \
         or (wipe is not None and not wipe.get("ok")) \
-        or (sh is not None and sh["wemo"].get("ok") is False)
+        or (sh is not None and sh["wemo"].get("ok") is False) \
+        or (rgb is not None and rgb["rgb"].get("ok") is False)
     log(f"triggered '{args.profile}' in {elapsed}s" + (" (DEGRADED)" if degraded else ""))
     emit(not degraded, code=2 if degraded else 0,
          error="degraded: one or more steps failed" if degraded else None,
-         data={"profile": args.profile, "preflight": vault or None, "wipe": wipe,
-               "launches": launches, "smart_home": sh,
+         data={"profile": args.profile, "preflight": vault or None,
+               "report": report, "wipe": wipe, "launches": launches,
+               "smart_home": sh, "rgb": rgb,
                "elapsed_sec": elapsed, "dry_run": args.dry_run})
 
 
