@@ -169,18 +169,22 @@ Title/message are control-char-stripped and clamped (64/512 chars, honest
 `truncated` flags); the show call is deadline-bounded (10s) so a wedged
 toast pipeline cannot hang the hub.
 
-### hub/mail.py — iCloud mail (imaplib + smtplib)
+### hub/mail.py — IMAP/SMTP mail (imaplib + smtplib)
+
+Multi-provider: `--provider icloud|gmail` (icloud default) on every subcommand.
 
 ```
-python hub\mail.py check
-python hub\mail.py mailboxes
-python hub\mail.py unread [--limit N]
-python hub\mail.py read --uid U [--mailbox M] [--max-chars N]
-python hub\mail.py send --to A --subject S --body B [--from F] [--confirm-send]
+python hub\mail.py check     [--provider P]
+python hub\mail.py mailboxes [--provider P]
+python hub\mail.py unread    [--provider P] [--limit N]
+python hub\mail.py read      [--provider P] --uid U [--mailbox M] [--max-chars N]
+python hub\mail.py send      [--provider P] --to A --subject S --body B [--from F] [--confirm-send]
 ```
 
-Notes: password pulled in-process from keyring (service `icloud_mail`,
-account `keatondavey`; overridable via `HUB_ICLOUD_*` env), never printed.
+Notes: per-provider host/user/cred mapping lives in `PROVIDERS`
+(icloud→`icloud_mail`, gmail→`gmail`; both account `keatondavey`), overridable
+per call via `--user`/`--cred-service`/`--cred-account` or `HUB_MAIL_*` env.
+Password pulled in-process from keyring, never printed.
 Reads open the mailbox **readonly** and fetch with BODY.PEEK — reading never
 marks mail as seen; limits are hard-capped (unread ≤25, body ≤20k chars) so a
 mailbox can't flood context. `send` is fail-closed: validates addresses

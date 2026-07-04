@@ -1,9 +1,11 @@
 """
-hub/mail.py — iCloud mail access for the Remote Hub (imaplib + smtplib).
+hub/mail.py — IMAP/SMTP mail access for the Remote Hub (imaplib + smtplib).
 
-Stateless CLI, standard JSON envelope. Credentials are pulled in-process from
-the keyring backend (Windows Credential Manager) via credentials.py and never
-printed — the password never leaves the process.
+Multi-provider (--provider icloud|gmail; icloud default). Stateless CLI,
+standard JSON envelope. Credentials are pulled in-process from the keyring
+backend (Windows Credential Manager) via credentials.py and never printed —
+the password never leaves the process. Host/user/cred mapping per provider is
+overridable via --user/--cred-service/--cred-account or HUB_MAIL_* env.
 
 Containment
 -----------
@@ -32,6 +34,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 from email.header import decode_header, make_header
 from email.message import EmailMessage
 
@@ -45,12 +48,46 @@ except ImportError:
     from credentials import get_provider, CredentialError
     from safety import KillSwitchEngaged, assert_alive
 
-IMAP_HOST = os.environ.get("HUB_ICLOUD_IMAP", "imap.mail.me.com")
-SMTP_HOST = os.environ.get("HUB_ICLOUD_SMTP", "smtp.mail.me.com")
-SMTP_PORT = 587
-LOGIN_USER = os.environ.get("HUB_ICLOUD_USER", "keatondavey@icloud.com")
-CRED_SERVICE = os.environ.get("HUB_ICLOUD_CRED_SERVICE", "icloud_mail")
-CRED_ACCOUNT = os.environ.get("HUB_ICLOUD_CRED_ACCOUNT", "keatondavey")
+# Per-provider defaults. login_user / cred_account are overridable per call
+# via CLI (--user, --cred-account, --cred-service) or env (HUB_MAIL_*).
+PROVIDERS = {
+    "icloud": {"imap": "imap.mail.me.com", "smtp": "smtp.mail.me.com",
+               "smtp_port": 587, "user": "keatondavey@icloud.com",
+               "cred_service": "icloud_mail", "cred_account": "keatondavey"},
+    "gmail":  {"imap": "imap.gmail.com", "smtp": "smtp.gmail.com",
+               "smtp_port": 587, "user": "cooldavey1256@gmail.com",
+               "cred_service": "gmail", "cred_account": "keatondavey"},
+}
+
+
+@dataclass
+class MailConfig:
+    provider: str
+    imap_host: str
+    smtp_host: str
+    smtp_port: int
+    login_user: str
+    cred_service: str
+    cred_account: str
+
+
+def resolve_config(args) -> MailConfig:
+    base = PROVIDERS[args.provider]
+    env = os.environ.get
+    return MailConfig(
+        provider=args.provider,
+        imap_host=env("HUB_MAIL_IMAP", base["imap"]),
+        smtp_host=env("HUB_MAIL_SMTP", base["smtp"]),
+        smtp_port=int(env("HUB_MAIL_SMTP_PORT", base["smtp_port"])),
+        login_user=args.user or env("HUB_MAIL_USER", base["user"]),
+        cred_service=args.cred_service or env("HUB_MAIL_CRED_SERVICE",
+                                              base["cred_service"]),
+        cred_account=args.cred_account or env("HUB_MAIL_CRED_ACCOUNT",
+                                              base["cred_account"]),
+    )
+
+
+CFG: MailConfig = None  # resolved from args in main() before dispatch
 
 NET_TIMEOUT = 20.0
 UNREAD_DEFAULT = 5
@@ -80,7 +117,8 @@ class MailError(Exception):
 def _password() -> str:
     """Fetch the app-specific password in-process. Value never emitted."""
     try:
-        return get_provider("keyring").get(CRED_SERVICE, CRED_ACCOUNT).reveal()
+        return get_provider("keyring").get(
+            CFG.cred_service, CFG.cred_account).reveal()
     except CredentialError as e:
         raise MailError(f"credential unavailable: {e}") from e
 
@@ -102,9 +140,9 @@ def _decode(raw: str | None) -> str:
 
 def _imap_login() -> imaplib.IMAP4_SSL:
     assert_alive("mail.imap-connect")  # gate BEFORE the network handshake
-    M = imaplib.IMAP4_SSL(IMAP_HOST, timeout=NET_TIMEOUT)
+    M = imaplib.IMAP4_SSL(CFG.imap_host, timeout=NET_TIMEOUT)
     try:
-        M.login(LOGIN_USER, _password())
+        M.login(CFG.login_user, _password())
     except imaplib.IMAP4.error as e:
         try:
             M.logout()
@@ -121,8 +159,9 @@ def do_check(args) -> None:
         total = int(data[0]) if typ == "OK" and data and data[0] else 0
     finally:
         M.logout()
-    emit(True, "check", data={"host": IMAP_HOST, "user": LOGIN_USER,
-                              "login": "ok", "inbox_total": total})
+    emit(True, "check", data={"provider": CFG.provider, "host": CFG.imap_host,
+                              "user": CFG.login_user, "login": "ok",
+                              "inbox_total": total})
 
 
 def do_mailboxes(args) -> None:
@@ -208,7 +247,7 @@ def do_read(args) -> None:
 
 
 def do_send(args) -> None:
-    from_addr = (args.from_addr or LOGIN_USER).strip()
+    from_addr = (args.from_addr or CFG.login_user).strip()
     to_addr = args.to.strip()
     errors = []
     if not _valid_addr(to_addr):
@@ -239,9 +278,9 @@ def do_send(args) -> None:
 
     assert_alive("mail.smtp-connect")  # gate BEFORE the network handshake
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=NET_TIMEOUT) as s:
+        with smtplib.SMTP(CFG.smtp_host, CFG.smtp_port, timeout=NET_TIMEOUT) as s:
             s.starttls()
-            s.login(LOGIN_USER, _password())
+            s.login(CFG.login_user, _password())
             s.send_message(msg)
     except (smtplib.SMTPException, OSError) as e:
         emit(False, "send", data=preview, error=f"SMTP error: {type(e).__name__}: {e}")
@@ -254,18 +293,25 @@ def main() -> None:
     p = argparse.ArgumentParser(prog="hub.mail", description=__doc__)
     sub = p.add_subparsers(dest="action", required=True)
 
-    sub.add_parser("check")
-    sub.add_parser("mailboxes")
+    common = argparse.ArgumentParser(add_help=False)  # shared by all subcommands
+    common.add_argument("--provider", choices=sorted(PROVIDERS),
+                        default="icloud")
+    common.add_argument("--user", help="override login/from address")
+    common.add_argument("--cred-service")
+    common.add_argument("--cred-account")
 
-    u = sub.add_parser("unread")
+    sub.add_parser("check", parents=[common])
+    sub.add_parser("mailboxes", parents=[common])
+
+    u = sub.add_parser("unread", parents=[common])
     u.add_argument("--limit", type=int, default=UNREAD_DEFAULT)
 
-    r = sub.add_parser("read")
+    r = sub.add_parser("read", parents=[common])
     r.add_argument("--uid", required=True)
     r.add_argument("--mailbox", default="INBOX")
     r.add_argument("--max-chars", type=int, default=BODY_READ_DEFAULT)
 
-    s = sub.add_parser("send")
+    s = sub.add_parser("send", parents=[common])
     s.add_argument("--to", required=True)
     s.add_argument("--subject", required=True)
     s.add_argument("--body", required=True)
@@ -273,6 +319,8 @@ def main() -> None:
     s.add_argument("--confirm-send", action="store_true")
 
     args = p.parse_args()
+    global CFG
+    CFG = resolve_config(args)
     handler = {"check": do_check, "mailboxes": do_mailboxes, "unread": do_unread,
                "read": do_read, "send": do_send}[args.action]
     try:
