@@ -132,6 +132,15 @@ In-process use: `get_provider().get(service, account) -> Secret` →
 `keyring` (Windows Credential Manager, DPAPI at rest, per-user) are active;
 `env` stays gated until green-lit. Selection: arg > `HUB_CRED_PROVIDER` > null.
 
+**Session note (DPAPI):** the keyring vault is DPAPI-encrypted, so it can only
+be read by a session that unlocked the user's master key — i.e. an interactive
+login at the PC. Over an **SSH key-based login** (e.g. from the phone) DPAPI is
+locked, so vault reads come back empty. `check` disambiguates this: a keyring
+miss carries `vault_readable:false` + a note (rather than implying the
+credential is gone), and `friday status` reports "vault unreadable in this
+session" instead of "MISSING". Run vault/mail actions at the PC (or via the
+scheduled task, which runs in the interactive session).
+
 **Enrollment is local-terminal-only by construction.** `enroll` demands an
 interactive terminal and reads the secret via hidden getpass prompt; run
 through an orchestration channel (non-TTY stdin) it refuses and prints the

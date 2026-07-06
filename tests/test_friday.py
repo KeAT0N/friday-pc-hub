@@ -215,7 +215,7 @@ class TestRunPower(unittest.TestCase):
 
 
 class TestStatusScene(unittest.TestCase):
-    def _status(self, no_mail=True, overrides=None):
+    def _status(self, no_mail=True, overrides=None, vault_readable=True):
         store = []
         overrides = overrides or {}
 
@@ -227,6 +227,9 @@ class TestStatusScene(unittest.TestCase):
             if module in overrides:
                 return overrides[module]
             if module == "credentials":
+                if not vault_readable:
+                    return {"ok": True, "data": {"exists": False,
+                                                 "vault_readable": False}}
                 svc = argv[argv.index("--service") + 1]
                 return {"ok": True, "data": {"exists": svc == "icloud_mail"}}
             return STATUS_DEFAULTS.get(module, {"ok": False, "error": "unexpected"})
@@ -250,8 +253,14 @@ class TestStatusScene(unittest.TestCase):
                          {"kill_switch", "system", "net", "mail", "vault",
                           "elapsed_sec"})
         self.assertIsNone(out["data"]["mail"])  # --no-mail
-        self.assertEqual(out["data"]["vault"],
+        self.assertTrue(out["data"]["vault"]["readable"])
+        self.assertEqual(out["data"]["vault"]["services"],
                          {"icloud_mail": True, "gmail": False, "github": False})
+
+    def test_vault_unreadable_session_flagged(self):
+        # over an SSH key login DPAPI is locked -> readable False, not "MISSING"
+        out = self._status(vault_readable=False)
+        self.assertFalse(out["data"]["vault"]["readable"])
 
     def test_net_failure_degrades_exit2(self):
         out = self._status(overrides={"net": {"ok": False, "error": "down"}})

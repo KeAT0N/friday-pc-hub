@@ -531,14 +531,20 @@ STATUS_VAULT_SERVICES = ("icloud_mail", "gmail", "github")
 
 def vault_audit(services) -> dict:
     """Non-aborting existence audit of vault services (unlike require_credentials
-    which fail-closes a boot). Pure read: only booleans, never values."""
+    which fail-closes a boot). Pure read: only booleans, never values. Also
+    reports whether the vault was even READABLE this session — over an SSH
+    key login DPAPI is locked, so a 'missing' there means unreadable, not gone."""
     out = {}
+    readable = True
     for svc in services:
         r = run_module("credentials", ["check", "--service", svc,
                                        "--account", VAULT_ACCOUNT,
                                        "--provider", "keyring"])
-        out[svc] = bool(r.get("ok") and (r.get("data") or {}).get("exists"))
-    return out
+        d = r.get("data") or {}
+        out[svc] = bool(r.get("ok") and d.get("exists"))
+        if d.get("vault_readable") is False:
+            readable = False
+    return {"readable": readable, "services": out}
 
 
 def status(args) -> None:
@@ -573,8 +579,12 @@ def status(args) -> None:
         log("mail: " + " - ".join(
             f"{p} {i['unread']} unread" if "unread" in i else f"{p} ERR"
             for p, i in mail.items()))
-    log("vault: " + "  ".join(
-        f"{k} {'OK' if v else 'MISSING'}" for k, v in vault.items()))
+    if vault["readable"]:
+        log("vault: " + "  ".join(
+            f"{k} {'OK' if v else 'MISSING'}" for k, v in vault["services"].items()))
+    else:
+        log("vault: UNREADABLE in this session (SSH key login locks DPAPI) - "
+            "credentials are fine; check at the PC")
 
     elapsed = round(time.monotonic() - t0, 1)
     degraded = not system.get("ok") or not net.get("ok") \

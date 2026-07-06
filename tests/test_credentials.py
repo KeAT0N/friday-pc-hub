@@ -13,10 +13,49 @@ from __future__ import annotations
 import json
 import pickle
 import unittest
+from unittest import mock
 
 from hub import credentials as cred
 from hub.credentials import Secret
 from tests._helpers import assert_envelope, run_cli
+
+
+def _fake_provider(name, exists):
+    p = mock.Mock()
+    p.name = name
+    p.exists.return_value = exists
+    return p
+
+
+class TestDpapiSessionProbe(unittest.TestCase):
+    def test_dpapi_available_in_interactive_test_session(self):
+        # the test runner is an interactive logon -> DPAPI round-trips
+        self.assertTrue(cred._dpapi_available())
+
+    def test_check_readable_keyring_miss_has_no_note(self):
+        with mock.patch.object(cred, "_dpapi_available", return_value=True):
+            d = cred._check_data(_fake_provider("keyring", False), "s", "a")
+        self.assertFalse(d["exists"])
+        self.assertTrue(d["vault_readable"])
+        self.assertNotIn("note", d)
+
+    def test_check_unreadable_keyring_miss_flags_and_notes(self):
+        with mock.patch.object(cred, "_dpapi_available", return_value=False):
+            d = cred._check_data(_fake_provider("keyring", False), "s", "a")
+        self.assertFalse(d["vault_readable"])
+        self.assertIn("note", d)
+        self.assertIn("DPAPI", d["note"])
+
+    def test_check_exists_skips_probe(self):
+        # a positive read proves DPAPI worked; no probe / vault_readable key
+        d = cred._check_data(_fake_provider("keyring", True), "s", "a")
+        self.assertTrue(d["exists"])
+        self.assertNotIn("vault_readable", d)
+
+    def test_check_nonkeyring_has_no_vault_fields(self):
+        d = cred._check_data(_fake_provider("null", False), "s", "a")
+        self.assertNotIn("vault_readable", d)
+        self.assertNotIn("note", d)
 
 CANARY = "canary-3f9a1c-value"
 

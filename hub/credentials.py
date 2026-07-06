@@ -420,6 +420,43 @@ def _keyring_selftest() -> None:
           error="; ".join(failures) or None)
 
 
+# ---------------------------------------------------------------- session probe
+
+def _dpapi_available() -> bool:
+    """True if this session can round-trip a DPAPI user-scope blob — i.e. the
+    user's master key is unlocked (interactive logon). False in a session that
+    authenticated WITHOUT the user's password (e.g. an SSH public-key login),
+    where Windows Credential Manager reads silently return nothing. Lets `check`
+    tell 'not enrolled' apart from 'vault locked in this session'."""
+    try:
+        import win32crypt
+        ui_forbidden = 0x1  # CRYPTPROTECT_UI_FORBIDDEN
+        enc = win32crypt.CryptProtectData(b"hub-dpapi-probe", None, None, None,
+                                          None, ui_forbidden)
+        _, dec = win32crypt.CryptUnprotectData(enc, None, None, None, ui_forbidden)
+        return dec == b"hub-dpapi-probe"
+    except Exception:
+        return False
+
+
+def _check_data(provider: CredentialProvider, service: str, account: str) -> dict:
+    """Existence result for `check`. For the keyring backend, a false 'exists'
+    is disambiguated: if DPAPI can't decrypt in this session the vault is
+    unreadable (not necessarily empty), so we flag that instead of implying the
+    credential is gone."""
+    exists = provider.exists(service, account)
+    data = {"provider": provider.name, "service": service, "account": account,
+            "exists": exists}
+    if provider.name == "keyring" and not exists:
+        readable = _dpapi_available()
+        data["vault_readable"] = readable
+        if not readable:
+            data["note"] = ("credential vault not readable in this session "
+                            "(DPAPI locked — e.g. SSH key login); the credential "
+                            "may still exist. Verify at the PC.")
+    return data
+
+
 # ---------------------------------------------------------------- cli
 # Existence and health checks only. No subcommand returns secret material.
 
@@ -506,12 +543,8 @@ def main() -> None:
         elif args.action == "unenroll":
             _unenroll(args)
         elif args.action == "check":
-            provider = get_provider(args.provider)
-            _emit(True, "check", data={
-                "provider": provider.name, "service": args.service,
-                "account": args.account,
-                "exists": provider.exists(args.service, args.account),
-            })
+            _emit(True, "check", data=_check_data(
+                get_provider(args.provider), args.service, args.account))
     except (CredentialError, KillSwitchEngaged) as e:
         _emit(False, args.action, error=str(e))
     except Exception as e:  # never let a traceback (or its locals) hit stdout
