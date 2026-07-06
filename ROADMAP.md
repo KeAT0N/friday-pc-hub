@@ -44,7 +44,7 @@ clipboard, media, window, screen (+ audio covered by media).**
 remaining items deferred with rationale (low value / need pycaw).**
 
 ## Phase 4 — Hardening
-- [ ] envelope contract fuzz (control chars, unicode, oversized fields)
+- [x] envelope contract fuzz — ensure_ascii holds end-to-end for BMP + astral unicode echoed into envelopes (round-trips via json.loads); notify._sanitize (control-strip/clamp/newline-keep) + mail._valid_addr (header-injection / multi-recipient rejection) hardening (test_fuzz.py, 10 tests)
 - [x] kill-switch coverage audit — one test asserts EVERY guarded module CLI (13) refuses (ok:false + "kill-switch", exit 1) when engaged; documents 2 exemptions (safety kill-status answers; friday status reports-not-obeys). (test_killswitch.py, 4 tests)
 - [ ] deadline/loop-ceiling audit
 - [ ] README kept in lockstep with every module added
@@ -219,3 +219,7 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   all modules live first (all refuse; no gaps found), then locked it in: 13
   guarded CLIs must refuse when engaged; exemptions documented (safety kill-
   status, friday status). 215 green. Next: envelope fuzz, deadline/loop audit.
+- 2026-07-06: Phase 4 — envelope contract fuzz (test_fuzz.py). ensure_ascii
+  round-trips BMP (café/☕) + astral (U+1F4A9) unicode echoed into errors;
+  notify._sanitize + mail._valid_addr (header-injection) hardening verified.
+  225 green. Only Phase 4 deadline/loop-ceiling audit remains before all-done.
