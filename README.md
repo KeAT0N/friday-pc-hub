@@ -207,7 +207,20 @@ python -m hub.friday trigger optimize       [--dry-run]
 python -m hub.friday trigger goodnight      [--dry-run]   wind down + lock
 python -m hub.friday status                 [--no-mail]   read-only health dashboard
 python -m hub.friday respond                [--dry-run]   security tripwire handler
+python -m hub.friday watch status                          is the tripwire registered?
+python -m hub.friday watch install          [--confirm]   register the event-trigger task
+python -m hub.friday watch uninstall        [--confirm]   remove it
 ```
+
+**watch** manages the Windows Scheduled Task whose EVENT TRIGGER launches
+`respond`. The task fires on Security event 4625 (failed logon) and Defender
+Operational 1116/1117 (malware detected/acted), runs hidden + single-instance
+(`IgnoreNew`, no pile-up) in the user session at highest privilege (the toast
+needs the desktop; reading the Security log needs elevation). `watch status` is
+read-only; `watch install`/`uninstall` are dry-run previews by default (install
+prints the full task XML + the `schtasks` command) and only act with `--confirm`
+in an elevated terminal — creating a Security-log-triggered task needs admin, so
+this final registration step is **NEEDS-YOU**.
 
 The **respond** handler is the 5b autonomous tripwire — the stateless process
 the OS launches on a Windows security event (see below). Fail-soft, bounded, and

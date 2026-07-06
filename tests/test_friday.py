@@ -18,6 +18,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from hub import friday
@@ -367,6 +368,82 @@ class TestRespond(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertEqual(out["code"], 1)
         self.assertNotIn("security", mods)           # gated before any read
+
+
+class TestWatch(unittest.TestCase):
+    """Scheduled-task registration: pure XML builder + confirm/admin gating,
+    with schtasks never actually invoked."""
+
+    SCHTASKS_LIST_READY = (
+        "Folder: \\\n"
+        "HostName:      L\n"
+        "TaskName:      \\RemoteHubSecurityTripwire\n"
+        "Next Run Time: N/A\n"
+        "Status:        Ready\n"
+        "Logon Mode:    Interactive only\n")
+
+    def _watch(self, watch_action, confirm=False, admin=True, schtasks_ret=None):
+        store, calls = [], []
+
+        def fake_emit(ok, data=None, error=None, code=0):
+            store.append({"ok": ok, "data": data, "error": error, "code": code})
+            raise _Emitted
+
+        def fake_schtasks(argv, timeout=friday.SCHTASKS_TIMEOUT):
+            calls.append(argv)
+            return schtasks_ret
+
+        ns = argparse.Namespace(action="watch", watch_action=watch_action,
+                                confirm=confirm)
+        with mock.patch.object(friday, "emit", fake_emit), \
+                mock.patch.object(friday, "_is_admin", return_value=admin), \
+                mock.patch.object(friday, "_schtasks", side_effect=fake_schtasks):
+            try:
+                friday.watch(ns)
+            except _Emitted:
+                pass
+        return store[0], calls
+
+    def test_build_task_xml_is_wellformed_and_complete(self):
+        import xml.dom.minidom as minidom
+        xml = friday.build_task_xml(r"C:\py\python.exe", r"C:\repo", "DOM\\user")
+        minidom.parseString(xml)  # raises if malformed
+        for needle in ("EventID=4625", "Windows Defender/Operational", "1116",
+                       "1117", "-m hub.friday respond", "<Hidden>true</Hidden>",
+                       "IgnoreNew", "InteractiveToken", "HighestAvailable"):
+            self.assertIn(needle, xml)
+
+    def test_install_dry_run_registers_nothing(self):
+        out, calls = self._watch("install", confirm=False)
+        self.assertTrue(out["data"]["dry_run"])
+        self.assertIn("task_xml", out["data"])
+        self.assertIn("schtasks_command", out["data"])
+        self.assertEqual(calls, [])   # schtasks never invoked
+
+    def test_install_confirm_without_admin_refused(self):
+        out, calls = self._watch("install", confirm=True, admin=False)
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], 1)
+        self.assertIn("elevated", out["error"])
+        self.assertEqual(calls, [])   # never touched Task Scheduler
+
+    def test_uninstall_dry_run_registers_nothing(self):
+        out, calls = self._watch("uninstall", confirm=False)
+        self.assertTrue(out["data"]["dry_run"])
+        self.assertEqual(calls, [])
+
+    def test_status_registered_parses_state(self):
+        ret = SimpleNamespace(returncode=0, stdout=self.SCHTASKS_LIST_READY,
+                              stderr="")
+        out, calls = self._watch("status", schtasks_ret=ret)
+        self.assertTrue(out["data"]["registered"])
+        self.assertEqual(out["data"]["state"], "Ready")
+
+    def test_status_not_registered(self):
+        ret = SimpleNamespace(returncode=1, stdout="", stderr="ERROR: not found")
+        out, calls = self._watch("status", schtasks_ret=ret)
+        self.assertFalse(out["data"]["registered"])
+        self.assertIsNone(out["data"]["state"])
 
 
 class TestCLIExitCodes(unittest.TestCase):

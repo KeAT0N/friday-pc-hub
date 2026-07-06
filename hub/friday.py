@@ -33,8 +33,10 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 try:  # package import or direct script run
     from hub.safety import KillSwitchEngaged, assert_alive
@@ -678,6 +680,154 @@ def respond(args) -> None:
                "elapsed_sec": round(time.monotonic() - t0, 1)})
 
 
+# ---------------------------------------------------------------- watch (5b registration)
+# Registers/inspects/removes the Windows Scheduled Task whose EVENT TRIGGER
+# launches `respond`. install/uninstall are dry-run-by-default + --confirm +
+# admin (creating a Security-log-triggered task needs elevation); status is
+# read-only. build_task_xml is a PURE function so the XML is unit-testable.
+
+TASK_NAME = "RemoteHubSecurityTripwire"
+SCHTASKS_TIMEOUT = 20.0
+
+
+def _is_admin() -> bool:
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def _current_user() -> str:
+    dom = os.environ.get("USERDOMAIN") or os.environ.get("COMPUTERNAME")
+    user = os.environ.get("USERNAME") or "user"
+    return f"{dom}\\{user}" if dom else user
+
+
+def _event_subscription(channel: str, xpath: str) -> str:
+    q = (f'<QueryList><Query Id="0" Path="{channel}">'
+         f'<Select Path="{channel}">{xpath}</Select></Query></QueryList>')
+    return escape(q)   # the query is TEXT content inside <Subscription>
+
+
+def build_task_xml(python_exe: str, repo_dir: str, user: str) -> str:
+    """Pure: build the Task Scheduler XML. Trigger = Security 4625 + Defender
+    Operational 1116/1117; action = `python -m hub.friday respond`; hidden,
+    single-instance, runs elevated in the user session (toast + Security log)."""
+    security = _event_subscription("Security", "*[System[(EventID=4625)]]")
+    defender = _event_subscription(
+        "Microsoft-Windows-Windows Defender/Operational",
+        "*[System[(EventID=1116 or EventID=1117)]]")
+    return (
+        '<?xml version="1.0" encoding="UTF-16"?>\n'
+        '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
+        "  <RegistrationInfo>\n"
+        "    <Description>Remote Hub security tripwire: launches friday respond "
+        "on a failed-logon or Defender event.</Description>\n"
+        f"    <URI>\\{TASK_NAME}</URI>\n"
+        "  </RegistrationInfo>\n"
+        "  <Triggers>\n"
+        f"    <EventTrigger><Enabled>true</Enabled><Subscription>{security}</Subscription></EventTrigger>\n"
+        f"    <EventTrigger><Enabled>true</Enabled><Subscription>{defender}</Subscription></EventTrigger>\n"
+        "  </Triggers>\n"
+        "  <Principals>\n"
+        '    <Principal id="Author">\n'
+        f"      <UserId>{escape(user)}</UserId>\n"
+        "      <LogonType>InteractiveToken</LogonType>\n"
+        "      <RunLevel>HighestAvailable</RunLevel>\n"
+        "    </Principal>\n"
+        "  </Principals>\n"
+        "  <Settings>\n"
+        "    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\n"
+        "    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\n"
+        "    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\n"
+        "    <AllowHardTerminate>true</AllowHardTerminate>\n"
+        "    <Enabled>true</Enabled>\n"
+        "    <Hidden>true</Hidden>\n"
+        "    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>\n"
+        "    <Priority>7</Priority>\n"
+        "  </Settings>\n"
+        '  <Actions Context="Author">\n'
+        "    <Exec>\n"
+        f"      <Command>{escape(python_exe)}</Command>\n"
+        "      <Arguments>-m hub.friday respond</Arguments>\n"
+        f"      <WorkingDirectory>{escape(repo_dir)}</WorkingDirectory>\n"
+        "    </Exec>\n"
+        "  </Actions>\n"
+        "</Task>\n"
+    )
+
+
+def _schtasks(argv: list[str], timeout: float = SCHTASKS_TIMEOUT):
+    return subprocess.run(["schtasks", *argv], capture_output=True, text=True,
+                          timeout=timeout)
+
+
+def _parse_task_status(stdout: str) -> str | None:
+    for line in stdout.splitlines():
+        s = line.strip()
+        if s.lower().startswith("status:"):
+            return s.split(":", 1)[1].strip()
+    return None
+
+
+def watch_install(args) -> None:
+    xml = build_task_xml(sys.executable, str(REPO), _current_user())
+    schtasks_cmd = f'schtasks /create /tn {TASK_NAME} /xml <file> /f'
+    if not args.confirm:
+        emit(True, data={"action": "watch.install", "dry_run": True,
+                         "task_name": TASK_NAME, "schtasks_command": schtasks_cmd,
+                         "task_xml": xml, "note": "registration needs an elevated "
+                         "terminal; re-run as admin with --confirm"})
+    if not _is_admin():
+        emit(False, error="watch install requires an elevated (admin) terminal "
+             "(creating a Security-log-triggered task needs admin)", code=1)
+    fd, path = tempfile.mkstemp(suffix=".xml", prefix="hubtask_")
+    try:
+        os.write(fd, xml.encode("utf-16"))   # schtasks expects UTF-16 XML
+        os.close(fd)
+        r = _schtasks(["/create", "/tn", TASK_NAME, "/xml", path, "/f"])
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    ok = r.returncode == 0
+    emit(ok, data={"action": "watch.install", "task_name": TASK_NAME,
+                   "registered": ok},
+         error=None if ok else (r.stderr.strip()[:300] or f"exit {r.returncode}"),
+         code=0 if ok else 2)
+
+
+def watch_status(args) -> None:
+    r = _schtasks(["/query", "/tn", TASK_NAME, "/fo", "LIST"])
+    registered = r.returncode == 0
+    emit(True, data={"action": "watch.status", "task_name": TASK_NAME,
+                     "registered": registered,
+                     "state": _parse_task_status(r.stdout) if registered else None})
+
+
+def watch_uninstall(args) -> None:
+    if not args.confirm:
+        emit(True, data={"action": "watch.uninstall", "dry_run": True,
+                         "task_name": TASK_NAME,
+                         "schtasks_command": f"schtasks /delete /tn {TASK_NAME} /f"})
+    if not _is_admin():
+        emit(False, error="watch uninstall requires an elevated (admin) terminal",
+             code=1)
+    r = _schtasks(["/delete", "/tn", TASK_NAME, "/f"])
+    ok = r.returncode == 0
+    emit(ok, data={"action": "watch.uninstall", "task_name": TASK_NAME,
+                   "removed": ok},
+         error=None if ok else (r.stderr.strip()[:300] or f"exit {r.returncode}"),
+         code=0 if ok else 2)
+
+
+def watch(args) -> None:
+    {"install": watch_install, "status": watch_status,
+     "uninstall": watch_uninstall}[args.watch_action](args)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="hub.friday", description=__doc__)
     sub = p.add_subparsers(dest="action", required=True)
@@ -697,10 +847,14 @@ def main() -> None:
     rs = sub.add_parser("respond")
     rs.add_argument("--dry-run", action="store_true")
 
+    w = sub.add_parser("watch")
+    w.add_argument("watch_action", choices=["install", "status", "uninstall"])
+    w.add_argument("--confirm", action="store_true")
+
     args = p.parse_args()
     try:
         {"boot": boot, "trigger": trigger, "status": status,
-         "respond": respond}[args.action](args)
+         "respond": respond, "watch": watch}[args.action](args)
     except KillSwitchEngaged as e:
         emit(False, error=str(e), code=1)
     except Exception as e:

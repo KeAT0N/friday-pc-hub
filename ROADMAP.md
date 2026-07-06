@@ -88,13 +88,12 @@ philosophy). Depends on the security.py read-only scanner above (built first).
       evaluates + reports, writes no marker / sends no toast. (7 tests: threshold,
       defender-trigger, cooldown-skips-scan, kill-switch-refuses, dry-run-no-fx,
       live dry-run smoke.)
-- [ ] friday.py `watch install|status|uninstall` — register/inspect/remove the
-      Scheduled Task. Trigger = Security EventID 4625 (failed logon) + Defender
-      Operational 1116/1117 (malware detected/acted); action = `python -m
-      hub.friday respond`. XML generated from config; task set Hidden +
-      MultipleInstancesPolicy=IgnoreNew (no pile-up) + runs in the user session
-      (so the toast reaches the desktop). Dry-run prints XML + schtasks command;
-      real register needs admin (--confirm) -> NEEDS-YOU.
+- [x] friday.py `watch install|status|uninstall` — pure build_task_xml (Security
+      4625 + Defender Operational 1116/1117 triggers; action=`friday respond`;
+      Hidden + IgnoreNew + InteractiveToken/HighestAvailable). install/uninstall
+      dry-run-by-default + --confirm + admin (fail-closed refusal); status
+      read-only. (6 tests: XML well-formed+complete, dry-runs register nothing,
+      admin-refusal, status parse.) Actual registration = admin -> NEEDS-YOU.
 - [ ] test: respond threshold + cooldown + fail-soft on unreadable Security log
       (mocked); watch install dry-run XML/query shape; kill-switch refusal.
 - [ ] test_security.py — audit parsing on captured sample output; confirm-gate
@@ -210,3 +209,9 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   security intruders, alerts via notify when the DATA threshold is crossed;
   never mutates; fully dry-run-able. 205 green. Remaining 5b: watch install/
   status/uninstall (registers the Scheduled Task event trigger — admin/NEEDS-YOU).
+- 2026-07-06: Phase 5b COMPLETE (code) — friday `watch install/status/uninstall`.
+  Pure build_task_xml (4625 + Defender triggers, respond action, Hidden/
+  IgnoreNew/InteractiveToken/HighestAvailable), dry-run-by-default + --confirm +
+  admin; status read-only. Tests never touch Task Scheduler. 211 green. Only the
+  real admin registration (`watch install --confirm`) remains, and that's
+  NEEDS-YOU. Next: Phase 4 hardening polish.
