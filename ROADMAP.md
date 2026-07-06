@@ -6,7 +6,7 @@ every iteration so any future session can resume mid-stream.
 
 Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` needs the user
 
-## Phase 1 — Foundation: a real test suite
+## Phase 1 — Foundation: a real test suite  ✅ COMPLETE (109 tests green)
 The single biggest gap: 2,710 lines of hub code, zero external tests. Built on
 stdlib `unittest` (no new deps, matches the project's self-contained ethos).
 A single runner (`python -m tests.run`) executes everything and emits a summary.
@@ -18,7 +18,7 @@ A single runner (`python -m tests.run`) executes everything and emits a summary.
 - [x] test_files.py — containment allowlist, `..`/outside escape, refused dot-dirs, key-material refusal, binary + bounded/truncated read (19 tests)
 - [x] test_credentials.py — Secret wrapper per-channel, provider registry, format validation, fail-closed enroll (26 tests). FOUND+FIXED a real bug: Windows `isatty()` returns True for NUL, so the non-TTY enroll gate hung on getpass instead of refusing — hardened with a GetConsoleMode probe.
 - [x] test_apps.py — guarded-kill owner scoping (same-user-only, identity-required, guard-before-scan), resolve ambiguity refusal, kill-switch refusal (12 tests, psutil mocked)
-- [ ] test_friday.py — dry-run planning, protect-layer logic, exit codes
+- [x] test_friday.py — safe-wipe protect layers (SELF_PROTECT + pattern name/title, unsaved kept-not-killed), kill-skip guard, RGB/smart-home dry-run, run_module resilience, exit codes 0/1 (17 tests, run_module mocked)
 
 ## Phase 2 — Breadth: new capable modules
 Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
@@ -135,3 +135,9 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   fires a notify.py emergency toast when a data-driven threshold is crossed.
   Depends on the security.py scanner (built first); task registration needs
   admin (queued in NEEDS-YOU).
+- 2026-07-05: test_friday (17) — mocked run_module to prove the safe-wipe
+  protection layers (SELF_PROTECT always kept, profile pattern matches process
+  name OR title, unsaved windows reported kept not force-killed) and the
+  kill-skip guard (SELF_PROTECT names never reach apps.kill). Plus RGB/smart-
+  home dry-run planning, run_module resilience, and CLI exit codes 0/1.
+  ** Phase 1 COMPLETE: 109 tests green across all 7 modules. ** Phase 2 next.
