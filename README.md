@@ -380,8 +380,16 @@ so even a 2560px grab encodes fast. pywin32 + stdlib only.
 ### hub/security.py — PC security posture audit (read-only)
 
 ```
-python hub\security.py audit             read-only posture scorecard + concerns
+python hub\security.py audit                        read-only posture scorecard + concerns
+python hub\security.py intruders [--hours N] [--max N]   read-only recent-signal report
 ```
+
+**intruders** is the read-only recent-signal report: failed logons (Security
+event 4625 in the last `--hours`, needs admin → fail-soft `available:false` +
+a note when unelevated, never an error), recent Defender threat detections, and
+current local admins. Counts + a bounded list; `concerns` flags only hard
+signals (a Defender detection). Count-based thresholds ("too many 4625") live in
+the brain / the 5b tripwire's data profile, never in the module.
 
 Notes: one bounded PowerShell gather assembles Defender (real-time/AV/tamper/
 signature age), firewall profiles, UAC, RDP, SMBv1, listening TCP ports,

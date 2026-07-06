@@ -61,9 +61,11 @@ protection and are reversible where possible.
       bounded PowerShell gather, per-check try/catch (null on fail), works
       unelevated. `concerns` flags hard on/off invariants only (no thresholds).
       (8 tests; concern/notes logic unit-tested on samples + live smoke.)
-- [ ] security.py `intruders` — read-only recent-signal report: failed logons
-      (Event ID 4625), new/changed local admins, listening ports vs a saved
-      baseline, recently added scheduled tasks / Run-key autoruns.
+- [x] security.py `intruders` — read-only recent-signal report: failed logons
+      (Security 4625, --hours window, admin-gated → fail-soft available:false +
+      note when unelevated), recent Defender threat detections, current local
+      admins. Bounded counts+list; concerns = hard signals only (thresholds live
+      in the brain / 5b profile). (8 tests: concern/notes on samples + live smoke.)
 - [ ] security.py hardening verbs (each --confirm gated, refuses w/o admin,
       says what it changed): `scan` (Defender quick/full), `update-sigs`,
       `firewall-on`, `realtime-on`, `disable-smb1`, `uac-on`. Fail-closed;
@@ -191,3 +193,7 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   PowerShell gather (Defender/firewall/UAC/RDP/SMB1/ports/BitLocker/admins/
   guest), per-check fail-soft, `concerns` = hard on/off invariants only.
   Live audit on this box: zero concerns (well-secured). 184 green.
+- 2026-07-06: security.py `intruders` — read-only signal report (failed logons
+  4625 admin-gated fail-soft, Defender detections, local admins). Live: no
+  recent failed logons / detections. concern+notes logic unit-tested on samples;
+  live smoke + hours-cap test. 192 green. Next: guarded hardening verbs, then 5b.

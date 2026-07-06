@@ -71,6 +71,35 @@ class TestNotes(unittest.TestCase):
         self.assertTrue(any("truncated" in n for n in notes))
 
 
+class TestIntruderConcerns(unittest.TestCase):
+    def test_detections_flagged(self):
+        a = {"defender_detections": {"available": True, "count": 2}}
+        c = security.intruder_concerns(a)
+        self.assertTrue(any("2 recent threat" in x for x in c))
+
+    def test_zero_detections_no_concern(self):
+        a = {"defender_detections": {"available": True, "count": 0}}
+        self.assertEqual(security.intruder_concerns(a), [])
+
+    def test_unavailable_detections_no_crash(self):
+        a = {"defender_detections": {"available": False, "error": "x"}}
+        self.assertEqual(security.intruder_concerns(a), [])
+
+    def test_missing_key_no_crash(self):
+        self.assertEqual(security.intruder_concerns({}), [])
+
+
+class TestIntruderNotes(unittest.TestCase):
+    def test_unavailable_failed_logons_noted(self):
+        a = {"failed_logons": {"available": False, "error": "access denied"}}
+        notes = security._intruder_notes(a)
+        self.assertTrue(any("elevated terminal" in n for n in notes))
+
+    def test_available_failed_logons_no_note(self):
+        a = {"failed_logons": {"available": True, "count": 0}}
+        self.assertEqual(security._intruder_notes(a), [])
+
+
 class TestSecurityCLI(unittest.TestCase):
     def test_audit_live_envelope(self):
         env, code = run_cli("security", "audit", timeout=50)
@@ -79,6 +108,22 @@ class TestSecurityCLI(unittest.TestCase):
         for key in ("defender", "firewall", "concerns", "notes"):
             self.assertIn(key, env["data"])
         self.assertIsInstance(env["data"]["concerns"], list)
+
+    def test_intruders_live_envelope(self):
+        env, code = run_cli("security", "intruders", "--hours", "1", "--max", "5",
+                            timeout=50)
+        assert_envelope(env, code)
+        self.assertTrue(env["ok"])
+        for key in ("failed_logons", "defender_detections", "concerns", "notes"):
+            self.assertIn(key, env["data"])
+
+    def test_intruders_hours_capped(self):
+        env, code = run_cli("security", "intruders", "--hours", "9999",
+                            "--max", "5", timeout=50)
+        assert_envelope(env, code)
+        fl = env["data"]["failed_logons"]
+        if fl.get("available") and "window_hours" in fl:
+            self.assertLessEqual(fl["window_hours"], security.INTRUDERS_HOURS_CAP)
 
 
 if __name__ == "__main__":

@@ -56,6 +56,32 @@ $r|ConvertTo-Json -Depth 6 -Compress
 '''
 
 
+# Recent-signal report. Reading the Security log (4625) needs admin; every check
+# is try/catch'd so an unelevated run reports available:false + a note, not error.
+INTRUDERS_TEMPLATE = r'''
+$ErrorActionPreference="Stop"
+$hours=__HOURS__; $max=__MAX__
+$r=[ordered]@{}
+$r.elevated=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+try{
+  $since=(Get-Date).AddHours(-$hours)
+  $ev=Get-WinEvent -FilterHashtable @{LogName="Security";Id=4625;StartTime=$since} -MaxEvents $max
+  $list=@($ev|ForEach-Object{@{time=$_.TimeCreated.ToString("o");account=[string]$_.Properties[5].Value;ip=[string]$_.Properties[19].Value}})
+  $r.failed_logons=@{available=$true;window_hours=$hours;count=@($list).Count;events=@($list)}
+}catch{
+  if($_.Exception.Message -match "No events were found"){$r.failed_logons=@{available=$true;window_hours=$hours;count=0;events=@()}}
+  else{$r.failed_logons=@{available=$false;error=[string]$_.Exception.Message}}
+}
+try{
+  $td=Get-MpThreatDetection|Sort-Object InitialDetectionTime -Descending|Select-Object -First $max
+  $tl=@($td|ForEach-Object{@{time=[string]$_.InitialDetectionTime;threat_id=[string]$_.ThreatID;cleaned=[bool]$_.ActionSuccess}})
+  $r.defender_detections=@{available=$true;count=@($tl).Count;items=@($tl)}
+}catch{$r.defender_detections=@{available=$false;error=[string]$_.Exception.Message}}
+try{$adm=Get-LocalGroupMember -Group "Administrators";$r.local_admins=@($adm|ForEach-Object{[string]$_.Name})}catch{$r.local_admins=$null}
+$r|ConvertTo-Json -Depth 6 -Compress
+'''
+
+
 def emit(ok: bool, action: str, data=None, error: str | None = None) -> None:
     print(json.dumps(
         {"ok": ok, "action": action, "data": data, "error": error},
@@ -125,20 +151,78 @@ def do_audit(args) -> None:
     emit(True, "audit", data={**raw, "concerns": concerns(raw), "notes": notes})
 
 
+# ---------------------------------------------------------------- intruders (RO)
+
+INTRUDERS_HOURS_DEFAULT = 24
+INTRUDERS_HOURS_CAP = 168          # one week
+INTRUDERS_MAX_DEFAULT = 50
+INTRUDERS_MAX_CAP = 200
+
+
+def _run_intruders(hours: int, max_events: int) -> dict:
+    hours = max(1, min(hours, INTRUDERS_HOURS_CAP))
+    max_events = max(1, min(max_events, INTRUDERS_MAX_CAP))
+    script = (INTRUDERS_TEMPLATE
+              .replace("__HOURS__", str(hours))
+              .replace("__MAX__", str(max_events)))
+    p = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+         "Bypass", "-Command", script],
+        capture_output=True, text=True, timeout=PS_TIMEOUT)
+    text = (p.stdout or "").strip()
+    if not text:
+        raise RuntimeError(
+            f"powershell produced no output (stderr: {p.stderr.strip()[:200]})")
+    return json.loads(text)
+
+
+def intruder_concerns(a: dict) -> list[str]:
+    """Hard signals only. Count-based thresholds (e.g. 'many 4625') live in the
+    brain / the 5b tripwire's data profile, never here."""
+    out = []
+    dd = a.get("defender_detections")
+    if isinstance(dd, dict) and dd.get("available") and dd.get("count", 0) > 0:
+        out.append(f"Defender recorded {dd['count']} recent threat detection(s)")
+    return out
+
+
+def _intruder_notes(a: dict) -> list[str]:
+    notes = []
+    fl = a.get("failed_logons")
+    if isinstance(fl, dict) and not fl.get("available"):
+        notes.append("reading failed logons (Security event log) needs an "
+                     "elevated terminal; run the audit as admin for this signal")
+    return notes
+
+
+def do_intruders(args) -> None:
+    raw = _run_intruders(args.hours, args.max)
+    emit(True, "intruders", data={**raw, "concerns": intruder_concerns(raw),
+                                  "notes": _intruder_notes(raw)})
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="hub.security", description=__doc__)
     sub = p.add_subparsers(dest="action", required=True)
     sub.add_parser("audit")
+
+    it = sub.add_parser("intruders")
+    it.add_argument("--hours", type=int, default=INTRUDERS_HOURS_DEFAULT,
+                    help=f"failed-logon look-back window (1-{INTRUDERS_HOURS_CAP})")
+    it.add_argument("--max", type=int, default=INTRUDERS_MAX_DEFAULT,
+                    help=f"max events per signal (1-{INTRUDERS_MAX_CAP})")
 
     args = p.parse_args()
     try:
         assert_alive(f"security.{args.action}")
         if args.action == "audit":
             do_audit(args)
+        elif args.action == "intruders":
+            do_intruders(args)
     except KillSwitchEngaged as e:
         emit(False, args.action, error=str(e))
     except subprocess.TimeoutExpired:
-        emit(False, args.action, error=f"audit timed out after {PS_TIMEOUT}s")
+        emit(False, args.action, error=f"{args.action} timed out after {PS_TIMEOUT}s")
     except Exception as e:
         emit(False, args.action, error=f"unhandled {type(e).__name__}: {e}")
 
