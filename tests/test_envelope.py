@@ -38,6 +38,7 @@ SAFE_INVOCATIONS = [
     ("clipboard", ["get"]),
     ("media", ["keys"]),
     ("window", ["list"]),
+    ("screen", ["displays"]),
 ]
 
 

@@ -345,6 +345,21 @@ keywords, or a single opaque high-entropy token) and WITHHOLDS matching content
 dumps a copied password into chat. Clipboard opens are bounded (deadline+retry)
 so a momentarily-locked clipboard can't hang the hub. Uses win32clipboard.
 
+### hub/screen.py — screen capture (staged, dependency-free PNG)
+
+```
+python hub\screen.py displays                    read-only: monitors + geometry
+python hub\screen.py capture [--display N | --all]   default --all
+```
+
+Notes: `capture` BitBlts the screen (whole virtual desktop or one monitor),
+encodes a PNG by hand with stdlib zlib (no image library), and writes it into
+an allowed files.py root (Pictures/RemoteHub by preference) with a timestamped,
+uniquified name — never overwriting. Returns the staged path + sha256; image
+bytes never touch stdout. The orchestrator then sends the file via files.py's
+staging channel. BGRX→RGBA is a C-level slice swap (no per-pixel Python loop),
+so even a 2560px grab encodes fast. pywin32 + stdlib only.
+
 ### hub/files.py — contained file access
 
 ```
