@@ -3,3 +3,4 @@ __pycache__/
 hub/KILLSWITCH
 hub/KILLSWITCH.selftest*
 hub/.respond_cooldown
+hub/.push.json

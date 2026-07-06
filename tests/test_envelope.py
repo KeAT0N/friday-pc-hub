@@ -40,6 +40,7 @@ SAFE_INVOCATIONS = [
     ("window", ["list"]),
     ("screen", ["displays"]),
     ("security", ["audit"]),
+    ("push", ["status"]),
 ]
 
 

@@ -172,6 +172,23 @@ Title/message are control-char-stripped and clamped (64/512 chars, honest
 `truncated` flags); the show call is deadline-bounded (10s) so a wedged
 toast pipeline cannot hang the hub.
 
+### hub/push.py — phone push notifications (ntfy)
+
+```
+python hub\push.py configure --topic T [--server S]
+python hub\push.py status                     is a topic set? (masked)
+python hub\push.py send --title T --message M [--priority ...] [--tags ...]
+python hub\push.py test
+```
+
+Notes: pushes to the phone's ntfy app via ntfy.sh (or a self-hosted server).
+The topic is the shared secret, kept OUT of git — stored in gitignored
+`hub/.push.json` (written by `configure`) or via `HUB_NTFY_TOPIC`. Fail-soft /
+inert until configured, so `friday respond` calls it safely whether or not it's
+set up. The HTTP POST is timeout-bounded; header values are ASCII-sanitized.
+`friday respond` fires this (priority `urgent`) alongside the desktop toast, so
+a real security signal reaches your phone even when you're away from the PC.
+
 ### hub/mail.py — IMAP/SMTP mail (imaplib + smtplib)
 
 Multi-provider: `--provider icloud|gmail` (icloud default) on every subcommand.

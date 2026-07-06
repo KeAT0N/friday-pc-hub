@@ -658,23 +658,28 @@ def respond(args) -> None:
     triggered = bool(reasons)
     log("signals: " + (f"TRIGGERED - {'; '.join(reasons)}" if triggered else "clear"))
 
-    notified = False
+    notified = pushed = False
     if triggered and not args.dry_run:
+        msg = "; ".join(reasons)[:480]
         nr = run_module("notify", ["send", "--title", "Security alert (FRIDAY)",
-                                   "--message", "; ".join(reasons)[:480],
-                                   "--duration", "long"])
+                                   "--message", msg, "--duration", "long"])
         notified = bool(nr.get("ok"))
+        # also push to the phone (fail-soft: inert if push isn't configured)
+        pr = run_module("push", ["send", "--title", "Security alert (FRIDAY)",
+                                 "--message", msg, "--priority", "urgent",
+                                 "--tags", "rotating_light"])
+        pushed = bool(pr.get("ok"))
         _arm_cooldown()
-        log(f"ALERT -> notify {'ok' if notified else 'FAILED'}; "
-            f"cooldown armed {sw['cooldown_sec']}s")
+        log(f"ALERT -> toast {'ok' if notified else 'FAIL'} / "
+            f"phone {'ok' if pushed else 'inert'}; cooldown armed {sw['cooldown_sec']}s")
     elif triggered and args.dry_run:
-        log("DRY-RUN: would alert + arm cooldown (no toast, no marker written)")
+        log("DRY-RUN: would toast + push + arm cooldown (nothing sent/written)")
 
     degraded = not intr.get("ok")
     emit(not degraded, code=2 if degraded else 0,
          error="degraded: could not read intruder signals" if degraded else None,
          data={"triggered": triggered, "reasons": reasons, "notified": notified,
-               "cooling_down": False, "dry_run": args.dry_run,
+               "pushed": pushed, "cooling_down": False, "dry_run": args.dry_run,
                "signals": {"failed_logons": fl, "defender_detections": dd},
                "thresholds": sw, "window_hours": hours,
                "elapsed_sec": round(time.monotonic() - t0, 1)})
