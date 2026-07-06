@@ -43,11 +43,38 @@ Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
 - [ ] deadline/loop-ceiling audit
 - [ ] README kept in lockstep with every module added
 
+## Phase 5 — PC security hardening (`hub/security.py`) [user-requested]
+"Make the PC super safe from viruses and intruders." Same hub philosophy:
+a read-only security *sensor* first (dumb hands, brain scores it), then
+guarded, confirm-gated, admin-aware hardening actions that NEVER weaken
+protection and are reversible where possible.
+
+- [ ] security.py `audit` — read-only posture scorecard, one envelope:
+      Defender (real-time on? sigs current? last scan) via Get-MpComputerStatus;
+      firewall profile states (Get-NetFirewallProfile); pending Windows Updates;
+      BitLocker status; UAC level; RDP + SMBv1 enabled?; listening TCP ports
+      (Get-NetTCPConnection -State Listen); enabled local admins + guest acct.
+      Each normalized to bool/number so the brain can flag issues.
+- [ ] security.py `intruders` — read-only recent-signal report: failed logons
+      (Event ID 4625), new/changed local admins, listening ports vs a saved
+      baseline, recently added scheduled tasks / Run-key autoruns.
+- [ ] security.py hardening verbs (each --confirm gated, refuses w/o admin,
+      says what it changed): `scan` (Defender quick/full), `update-sigs`,
+      `firewall-on`, `realtime-on`, `disable-smb1`, `uac-on`. Fail-closed;
+      never disables a protection; dry-run preview by default.
+- [ ] test_security.py — audit parsing on captured sample output; confirm-gate
+      + admin-gate refusals; every verb dry-runs without acting.
+- [ ] FRIDAY `lockdown` scene composing audit + firewall-on + realtime-on + scan
+- [ ] README: new Module CLIs section for security.py
+
 ## NEEDS-YOU (blocked on the user — building around these)
 - [ ] `pip install pywemo` to activate real Wemo smart-home discovery
 - [ ] Enroll real credentials at the PC terminal (iCloud/Gmail app-passwords) when ready
 - [ ] Approve any real email send in chat before it transmits
 - [ ] Confirm physical devices (lights/Wemo) when smart-home scenes are tested
+- [ ] Phase 5: run an ELEVATED (admin) terminal for the actual hardening verbs
+  (scan/firewall-on/etc.) — the read-only `audit`/`intruders` reports mostly
+  work unelevated and get built first; the mutating verbs need your admin OK.
 
 ## Log
 - 2026-07-05: Kicked off autonomous effort. Baseline healthy (Py 3.14, all
@@ -65,3 +92,7 @@ Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
 - 2026-07-05: test_system (9) — telemetry invariants, pid-0 exclusion, whole-
   machine cpu normalization verified against the live box. Suite at 80 green.
   Phase 1 remaining: test_apps, test_friday (both need light mocking).
+- 2026-07-05: User requested Phase 5 — make the PC "super safe from viruses and
+  intruders." Added as a read-only-audit-first security module + guarded
+  hardening verbs + a FRIDAY lockdown scene. Loop stop-condition extended to
+  cover all phases (was stopping at Phase 4).
