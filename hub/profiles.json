@@ -29,6 +29,7 @@
     "requires": [],
     "rgb": "orange",
     "report": {"top": 8},
-    "wipe": {"protect": []}
+    "wipe": {"protect": []},
+    "kill": ["Discord.exe", "EpicGamesLauncher.exe", "Steam.exe"]
   }
 }

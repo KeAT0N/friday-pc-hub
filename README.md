@@ -233,7 +233,12 @@ discovers and toggles the named Wemo switch on the LAN.
 only `SELF_PROTECT` survives). It is deliberately **window-scoped, not
 process-table-scoped** — killing every process outside a small allowlist would
 terminate `svchost`/`lsass`/drivers/AV and crash Windows without freeing
-reclaimable RAM, so FRIDAY never does that.
+reclaimable RAM, so FRIDAY never does that. A profile may also carry a
+`kill: [names]` list for windowless tray/background apps (e.g. Discord, Epic,
+Steam); each goes through the guarded `apps kill`, which is **fail-closed**:
+refuses `CRITICAL_KILL_GUARD` names, refuses if the invoking user can't be
+resolved, and targets a process only if its owner is positively the invoking
+user (unreadable/elevated/SYSTEM owners are skipped, never killed).
 
 **RGB** (`rgb: green|red|purple|orange|<hex>`) sets Alienware zones via an
 AlienFX/AWCC controller. AWCC exposes no stable public color CLI, so this is a

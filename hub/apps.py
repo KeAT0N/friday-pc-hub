@@ -40,6 +40,25 @@ except ImportError:
 DEFAULT_TIMEOUT = 10.0
 GRACEFUL_CLOSE_GRACE = 3.0  # extra seconds a killed process gets after terminate()
 
+# `kill --name` refuses these outright — terminating any of them by name would
+# destabilise Windows or kill the hub/dev env. Belt-and-suspenders on top of
+# the current-user-only filter (which already excludes system/other-user procs).
+CRITICAL_KILL_GUARD = {
+    "system", "system idle process", "registry", "memcompression",
+    "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe",
+    "lsass.exe", "lsaiso.exe", "svchost.exe", "dwm.exe", "fontdrvhost.exe",
+    "spoolsv.exe", "audiodg.exe", "ctfmon.exe", "sihost.exe", "taskhostw.exe",
+    "runtimebroker.exe", "wudfhost.exe", "conhost.exe", "explorer.exe",
+    "textinputhost.exe", "searchhost.exe", "searchapp.exe",
+    "shellexperiencehost.exe", "startmenuexperiencehost.exe",
+    "applicationframehost.exe", "lockapp.exe",
+    "cmd.exe", "powershell.exe", "pwsh.exe", "windowsterminal.exe",
+    "openconsole.exe", "python.exe", "py.exe", "pythonw.exe",
+    "wscript.exe", "cscript.exe", "ssh-agent.exe",
+    "code.exe", "code - insiders.exe", "cursor.exe", "node.exe",
+    "claude.exe", "taskmgr.exe",
+}
+
 
 # ---------------------------------------------------------------- results
 
@@ -258,6 +277,78 @@ def do_close(args) -> None:
     emit(True, "close", data={"closed": asdict(win), "forced": True})
 
 
+def do_kill(args) -> None:
+    """Terminate current-user processes by exact name, graceful-first.
+
+    Fail-CLOSED owner scoping: (1) refuses names on CRITICAL_KILL_GUARD;
+    (2) refuses entirely if the invoking user can't be resolved; (3) targets a
+    process ONLY if its owner is positively readable AND equals the invoking
+    user — a process whose owner is None/unreadable (every elevated/SYSTEM
+    process on Windows) is skipped, never killed; (4) tries WM_CLOSE before
+    terminate(). Windowless tray apps have no window to close, so they fall
+    straight through to a clean TerminateProcess (no SIGTERM on Windows).
+    """
+    name = args.name
+    if name.lower() in CRITICAL_KILL_GUARD:
+        emit(False, "kill", data={"name": name},
+             error=f"refused: {name!r} is a protected/critical process")
+
+    try:
+        me = psutil.Process().username()
+    except psutil.Error:
+        me = None
+    if not me:  # can't establish identity -> fail closed, kill nothing
+        emit(False, "kill", data={"name": name},
+             error="cannot resolve invoking user; refusing kill (fail-closed)")
+
+    targets = []
+    for p in psutil.process_iter(["pid", "name", "username"]):
+        try:
+            if (p.info["name"] or "").lower() != name.lower():
+                continue
+            # positive same-user match only: unreadable/other owner -> skip
+            if p.info.get("username") != me:
+                continue
+            targets.append(p)
+        except psutil.Error:
+            continue
+
+    if args.dry_run:
+        emit(True, "kill", data={"name": name, "matched": len(targets),
+                                 "dry_run": True, "pids": [p.pid for p in targets]})
+    if not targets:
+        emit(True, "kill", data={"name": name, "matched": 0, "terminated": []})
+
+    results = []
+    for p in targets:
+        pid = p.pid
+        try:
+            posted = False
+            for w in enum_windows(pid=pid):          # graceful first
+                win32gui.PostMessage(w.hwnd, win32con.WM_CLOSE, 0, 0)
+                posted = True
+            # only wait out the deadline if something was actually asked to close
+            if posted and wait_until(lambda: not psutil.pid_exists(pid), args.timeout):
+                results.append({"pid": pid, "method": "graceful", "terminated": True})
+                continue
+            p.terminate()
+            try:
+                p.wait(GRACEFUL_CLOSE_GRACE)
+            except psutil.TimeoutExpired:
+                p.kill()
+                p.wait(GRACEFUL_CLOSE_GRACE)
+            results.append({"pid": pid, "method": "terminate", "terminated": True})
+        except psutil.NoSuchProcess:
+            results.append({"pid": pid, "method": "already-exited", "terminated": True})
+        except psutil.Error as e:
+            results.append({"pid": pid, "terminated": False, "error": str(e)})
+
+    ok = all(r.get("terminated") for r in results)
+    emit(ok, "kill",
+         data={"name": name, "matched": len(targets), "terminated": results},
+         error=None if ok else "one or more processes survived")
+
+
 # ---------------------------------------------------------------- cli
 
 def build_parser() -> argparse.ArgumentParser:
@@ -286,6 +377,11 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "close":
             s.add_argument("--force", action="store_true")
 
+    k = sub.add_parser("kill")
+    k.add_argument("--name", required=True)
+    k.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    k.add_argument("--dry-run", action="store_true")
+
     return p
 
 
@@ -295,7 +391,7 @@ def main() -> None:
             v is not None for v in (args.title, args.pid, args.hwnd)):
         emit(False, args.action, error="need --title, --pid, or --hwnd")
     handler = {"list": do_list, "query": do_query, "launch": do_launch,
-               "focus": do_focus, "close": do_close}[args.action]
+               "focus": do_focus, "close": do_close, "kill": do_kill}[args.action]
     try:
         assert_alive(f"apps.{args.action}")
         handler(args)

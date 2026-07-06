@@ -245,6 +245,42 @@ def wipe_windows(protect_patterns: list[str], dry_run: bool) -> dict:
             "protected": protected, "closed": closed}
 
 
+def run_kills(kill_list: list[str] | None, dry_run: bool) -> list[dict] | None:
+    """Terminate named background/tray processes via the guarded apps.kill CLI.
+    Dry-run only counts matches (read-only apps.query); never terminates."""
+    if not kill_list:
+        return None
+    results = []
+    for name in kill_list:
+        if name.lower() in SELF_PROTECT:  # friday guard: never kill what wipe protects
+            results.append({"name": name, "matched": 0, "ok": True,
+                            "skipped": "protected"})
+            continue
+        # Preview uses apps.kill --dry-run so the count reflects the SAME
+        # exact-name + current-user selection the live kill will act on.
+        argv = ["kill", "--name", name] + (["--dry-run"] if dry_run else [])
+        r = run_module("apps", argv)
+        d = r.get("data") or {}
+        results.append({"name": name, "matched": d.get("matched", 0),
+                        "terminated": d.get("terminated"),
+                        "ok": None if dry_run else bool(r.get("ok")),
+                        "error": None if r.get("ok") else r.get("error")})
+    return results
+
+
+def narrate_kills(kills: list[dict], dry_run: bool) -> None:
+    for k in kills:
+        if k.get("skipped"):
+            state = f"SKIPPED ({k['skipped']})"
+        elif dry_run:
+            state = f"would kill {k['matched']}"
+        elif k["ok"]:
+            state = f"killed {k['matched']}" if k["matched"] else "none running"
+        else:
+            state = f"FAIL ({k.get('error')})"
+        log(f"kill: {k['name']} -> {state}")
+
+
 def narrate_wipe(wipe: dict, dry_run: bool) -> None:
     verb = "would close" if dry_run else "closed"
     log(f"wipe: protected {len(wipe['protected'])} "
@@ -422,6 +458,10 @@ def trigger(args) -> None:
         else:
             log(f"wipe: FAILED ({wipe.get('error')})")
 
+    kills = run_kills(profile.get("kill"), args.dry_run)
+    if kills is not None:
+        narrate_kills(kills, args.dry_run)
+
     launches = run_launches(profile.get("launch", []), args.dry_run)
 
     sh = smart_home(profile.get("smart_home"), args.dry_run)
@@ -436,14 +476,15 @@ def trigger(args) -> None:
     elapsed = round(time.monotonic() - t0, 1)
     degraded = any(l.get("ok") is False for l in launches) \
         or (wipe is not None and not wipe.get("ok")) \
+        or (kills is not None and any(k.get("ok") is False for k in kills)) \
         or (sh is not None and sh["wemo"].get("ok") is False) \
         or (rgb is not None and rgb["rgb"].get("ok") is False)
     log(f"triggered '{args.profile}' in {elapsed}s" + (" (DEGRADED)" if degraded else ""))
     emit(not degraded, code=2 if degraded else 0,
          error="degraded: one or more steps failed" if degraded else None,
          data={"profile": args.profile, "preflight": vault or None,
-               "report": report, "wipe": wipe, "launches": launches,
-               "smart_home": sh, "rgb": rgb,
+               "report": report, "wipe": wipe, "kills": kills,
+               "launches": launches, "smart_home": sh, "rgb": rgb,
                "elapsed_sec": elapsed, "dry_run": args.dry_run})
 
 
