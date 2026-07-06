@@ -36,6 +36,7 @@ SAFE_INVOCATIONS = [
     ("power", ["status"]),
     ("net", ["adapters"]),
     ("clipboard", ["get"]),
+    ("media", ["keys"]),
 ]
 
 

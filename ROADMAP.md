@@ -27,7 +27,7 @@ Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
 - [ ] audio.py — master volume/mute, default device switch, per-app volume
 - [x] power.py — status (RO) + lock/monitor-off/sleep/hibernate/shutdown/restart/cancel, all confirm-gated dry-run-by-default, ctypes-only, bounded (7 tests)
 - [x] clipboard.py — get (read-only, secret-withholding heuristic + --reveal, length-capped) + confirm-gated set/clear, bounded clipboard opens (12 tests)
-- [ ] media.py — playback control via media keys (play/pause/next/prev/vol)
+- [x] media.py — play-pause/next/prev/stop/mute/volume-up/down via ctypes keybd_event, read-only `keys`, --steps capped; media keys act directly (benign, documented exemption) (7 tests)
 - [x] net.py — status (hostname/IP/online), adapters (up/speed/IPv4/6/MAC), wifi (netsh), bounded ping w/ host-injection guard + anchored parse (10 tests). Found+fixed a ping-parse bug (bytes=/TTL= misread as counts).
 - [ ] screen.py — screenshot to staged file (goes through files.py staging)
 
@@ -153,3 +153,8 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   secret-withholding heuristic (never dumps a copied password to chat without
   --reveal); set/clear confirm-gated. Tests mock the io helpers so the live
   clipboard is never clobbered. 138 green.
+- 2026-07-05: Phase 2 module 4 — media.py (ctypes keybd_event). Media/volume
+  keys act directly (documented confirm-gate exemption: benign + instantly
+  reversible). All acting verbs tested with _tap mocked (no real volume/
+  playback change). Fixed a Py3.14 argparse gotcha (literal % in help string).
+  145 green.

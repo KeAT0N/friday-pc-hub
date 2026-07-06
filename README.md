@@ -293,6 +293,22 @@ without hanging, shutdown.exe carries a timeout, and `shutdown`/`restart`
 default to a 60s delay so `cancel` has a window. Orchestration rule: an actual
 `--confirm` power action is confirmed with the user in chat first.
 
+### hub/media.py — media transport & volume keys
+
+```
+python hub\media.py keys                        read-only: supported keys + codes
+python hub\media.py play-pause | next | prev | stop
+python hub\media.py mute
+python hub\media.py volume-up   [--steps N]     N capped at 50
+python hub\media.py volume-down [--steps N]
+```
+
+Notes: dependency-free (ctypes → user32.keybd_event); the shell routes the
+media VKs to the active media session, so no target window is needed. These
+act DIRECTLY (no --confirm) by deliberate exemption: a media key is benign and
+instantly reversible (no data loss, no outward effect), unlike the gated
+power/mail mutations. `--steps` is capped so a stuck request can't runaway.
+
 ### hub/clipboard.py — clipboard access (secret-aware)
 
 ```
