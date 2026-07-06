@@ -66,10 +66,13 @@ protection and are reversible where possible.
       note when unelevated), recent Defender threat detections, current local
       admins. Bounded counts+list; concerns = hard signals only (thresholds live
       in the brain / 5b profile). (8 tests: concern/notes on samples + live smoke.)
-- [ ] security.py hardening verbs (each --confirm gated, refuses w/o admin,
-      says what it changed): `scan` (Defender quick/full), `update-sigs`,
-      `firewall-on`, `realtime-on`, `disable-smb1`, `uac-on`. Fail-closed;
-      never disables a protection; dry-run preview by default.
+- [x] security.py hardening verbs — `scan [--full]`, `firewall-on`, `realtime-on`,
+      `disable-smb1`, `update-sigs`. Dry-run preview by default; --confirm to act;
+      acting REFUSES without admin (fail-closed). By construction NO verb weakens
+      a protection (no realtime-off/firewall-off). Each = one bounded PS cmdlet;
+      scan launches detached. (6 tests: gating proven with effects mocked +
+      live admin-refusal.) [uac-on dropped: enabling UAC needs a reboot + is
+      rarely off; not worth the footgun.]
 ### Phase 5b — Autonomous push tripwire (event-driven, NO daemon) [user-requested]
 Windows Task Scheduler is the push pump: it natively triggers a task on a
 Security-log event and launches our short-lived handler — so there is no
@@ -197,3 +200,8 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   4625 admin-gated fail-soft, Defender detections, local admins). Live: no
   recent failed logons / detections. concern+notes logic unit-tested on samples;
   live smoke + hours-cap test. 192 green. Next: guarded hardening verbs, then 5b.
+- 2026-07-06: security.py hardening verbs (scan/firewall-on/realtime-on/
+  disable-smb1/update-sigs). Dry-run-by-default + --confirm + admin-required;
+  NO protection-weakening verb exists by construction; scan detached so a full
+  scan can't block. Gating proven with effects mocked (no real cmdlet run) +
+  live admin-refusal. 198 green. Next: Phase 5b event-driven tripwire.

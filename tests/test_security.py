@@ -7,10 +7,23 @@ captured sample dicts so it never depends on the live machine's posture.
 
 from __future__ import annotations
 
+import argparse
 import unittest
+from unittest import mock
 
 from hub import security
 from tests._helpers import assert_envelope, run_cli
+
+
+class _Emitted(Exception):
+    pass
+
+
+def capture_emit(store):
+    def fake(ok, action, data=None, error=None):
+        store.append({"ok": ok, "action": action, "data": data, "error": error})
+        raise _Emitted
+    return fake
 
 CLEAN = {
     "elevated": True,
@@ -100,7 +113,82 @@ class TestIntruderNotes(unittest.TestCase):
         self.assertEqual(security._intruder_notes(a), [])
 
 
+class TestHardeningVerbs(unittest.TestCase):
+    """confirm + admin gating, proven with the OS effects mocked."""
+
+    def _harden(self, verb, confirm=False, admin=True, full=False):
+        store = []
+        ns = argparse.Namespace(action=verb, confirm=confirm)
+        if verb == "scan":
+            ns.full = full
+        with mock.patch.object(security, "emit", capture_emit(store)), \
+                mock.patch.object(security, "_is_admin", return_value=admin), \
+                mock.patch.object(security, "_ps_action") as ps, \
+                mock.patch.object(security, "_effect_scan") as scan:
+            ps.return_value = {"ok": True, "detail": "applied"}
+            scan.return_value = {"ok": True, "detail": "launched"}
+            try:
+                security.do_harden(ns)
+            except _Emitted:
+                pass
+        return store[0], ps, scan
+
+    def test_dry_run_calls_no_effect(self):
+        for verb in security.HARDENING_VERBS:
+            with self.subTest(verb=verb):
+                out, ps, scan = self._harden(verb, confirm=False)
+                self.assertTrue(out["ok"])
+                self.assertTrue(out["data"]["dry_run"])
+                ps.assert_not_called()
+                scan.assert_not_called()
+
+    def test_confirm_without_admin_refused(self):
+        for verb in security.HARDENING_VERBS:
+            with self.subTest(verb=verb):
+                out, ps, scan = self._harden(verb, confirm=True, admin=False)
+                self.assertFalse(out["ok"])
+                self.assertIn("elevated", out["error"])
+                ps.assert_not_called()
+                scan.assert_not_called()
+
+    def test_confirm_with_admin_invokes_right_cmdlet(self):
+        cases = {
+            "firewall-on": "Set-NetFirewallProfile -All -Enabled True",
+            "realtime-on": "Set-MpPreference -DisableRealtimeMonitoring $false",
+            "disable-smb1": "SMB1Protocol",
+            "update-sigs": "Update-MpSignature",
+        }
+        for verb, needle in cases.items():
+            with self.subTest(verb=verb):
+                out, ps, scan = self._harden(verb, confirm=True, admin=True)
+                self.assertTrue(out["ok"])
+                self.assertTrue(out["data"]["confirmed"])
+                ps.assert_called_once()
+                self.assertIn(needle, ps.call_args.args[0])
+
+    def test_scan_confirm_invokes_effect_with_type(self):
+        out, ps, scan = self._harden("scan", confirm=True, admin=True, full=True)
+        scan.assert_called_once_with(True)
+        ps.assert_not_called()
+
+    def test_no_verb_ever_weakens_a_protection(self):
+        # by construction: only enable/scan/update — no off/disable-realtime etc.
+        self.assertEqual(set(security.HARDENING_VERBS),
+                         {"scan", "firewall-on", "realtime-on",
+                          "disable-smb1", "update-sigs"})
+        for v in security.HARDENING_VERBS:
+            self.assertNotIn("off", v)
+            self.assertNotIn("realtime-off", v)
+
+
 class TestSecurityCLI(unittest.TestCase):
+    def test_firewall_on_admin_refusal_live(self):
+        # unelevated --confirm must refuse before acting (safe to run live).
+        env, code = run_cli("security", "firewall-on", "--confirm")
+        assert_envelope(env, code)
+        self.assertFalse(env["ok"])
+        self.assertIn("elevated", env["error"])
+
     def test_audit_live_envelope(self):
         env, code = run_cli("security", "audit", timeout=50)
         assert_envelope(env, code)

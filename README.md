@@ -382,7 +382,20 @@ so even a 2560px grab encodes fast. pywin32 + stdlib only.
 ```
 python hub\security.py audit                        read-only posture scorecard + concerns
 python hub\security.py intruders [--hours N] [--max N]   read-only recent-signal report
+python hub\security.py scan [--full]    [--confirm]      Defender scan (detached)
+python hub\security.py firewall-on      [--confirm]      enable firewall (all profiles)
+python hub\security.py realtime-on      [--confirm]      enable Defender real-time
+python hub\security.py disable-smb1     [--confirm]      disable legacy SMBv1
+python hub\security.py update-sigs      [--confirm]      update Defender signatures
 ```
+
+**Hardening verbs** are dry-run previews by default and only act with
+`--confirm`; acting also REQUIRES an elevated terminal (they refuse fail-closed
+otherwise). By construction there is **no verb that weakens a protection** —
+only enable/scan/update; there is deliberately no realtime-off or firewall-off.
+Each maps to one bounded PowerShell cmdlet; `scan` launches detached so a long
+full scan never blocks the hub. Orchestration rule: a real `--confirm` hardening
+action is confirmed with the user (and run in an admin terminal) — see NEEDS-YOU.
 
 **intruders** is the read-only recent-signal report: failed logons (Security
 event 4625 in the last `--hours`, needs admin → fail-soft `available:false` +

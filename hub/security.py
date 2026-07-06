@@ -201,10 +201,99 @@ def do_intruders(args) -> None:
                                   "notes": _intruder_notes(raw)})
 
 
+# ---------------------------------------------------------------- hardening verbs
+# Dry-run preview by default; --confirm to act; admin required to act. By
+# CONSTRUCTION there is no verb that weakens a protection — only enable/scan/
+# update. Each effect is an individually-patchable helper so tests verify the
+# confirm+admin gating without ever running a real cmdlet.
+
+HARDEN_TIMEOUT = 120.0
+HARDENING_VERBS = ("scan", "firewall-on", "realtime-on", "disable-smb1",
+                   "update-sigs")
+
+
+def _is_admin() -> bool:
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def _ps_action(command: str, timeout: float = HARDEN_TIMEOUT) -> dict:
+    """Run a single mutating PowerShell command; report ok + detail."""
+    p = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+         "Bypass", "-Command", f"$ErrorActionPreference='Stop'; {command}"],
+        capture_output=True, text=True, timeout=timeout)
+    ok = p.returncode == 0
+    return {"ok": ok, "detail": "applied" if ok
+            else (p.stderr.strip()[:300] or f"exit {p.returncode}")}
+
+
+def _effect_scan(full: bool) -> dict:
+    """Launch a Defender scan DETACHED so a long full scan can't block/timeout
+    the hub; report that it was started, not that it finished."""
+    stype = "FullScan" if full else "QuickScan"
+    launch = ("Start-Process -WindowStyle Hidden powershell -ArgumentList "
+              f"'-NoProfile','-Command','Start-MpScan -ScanType {stype}'")
+    p = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+         "Bypass", "-Command", f"$ErrorActionPreference='Stop'; {launch}"],
+        capture_output=True, text=True, timeout=30)
+    ok = p.returncode == 0
+    return {"ok": ok, "detail": f"{stype} launched (runs in background)" if ok
+            else (p.stderr.strip()[:300] or "launch failed")}
+
+
+EFFECTS = {
+    "scan": lambda a: _effect_scan(getattr(a, "full", False)),
+    "firewall-on": lambda a: _ps_action("Set-NetFirewallProfile -All -Enabled True"),
+    "realtime-on": lambda a: _ps_action("Set-MpPreference -DisableRealtimeMonitoring $false"),
+    "disable-smb1": lambda a: _ps_action(
+        "Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol -NoRestart"),
+    "update-sigs": lambda a: _ps_action("Update-MpSignature"),
+}
+
+
+def _plan(verb: str, args) -> str:
+    if verb == "scan":
+        return f"run a Windows Defender {'full' if getattr(args, 'full', False) else 'quick'} scan"
+    return {
+        "firewall-on": "enable the Windows Firewall on all profiles",
+        "realtime-on": "enable Defender real-time protection",
+        "disable-smb1": "disable the SMBv1 protocol feature",
+        "update-sigs": "update Defender antivirus signatures",
+    }[verb]
+
+
+def do_harden(args) -> None:
+    verb = args.action
+    plan = _plan(verb, args)
+    if not args.confirm:      # preview is safe + unprivileged
+        emit(True, verb, data={"dry_run": True, "confirm_required": True,
+                               "requires_admin": True, "plan": plan})
+    if not _is_admin():       # acting requires elevation — fail closed
+        emit(False, verb, error=f"{verb} requires an elevated (admin) terminal; "
+                                "re-run as administrator with --confirm")
+    result = EFFECTS[verb](args)
+    emit(bool(result.get("ok")), verb,
+         data={"confirmed": True, "plan": plan, "detail": result.get("detail")},
+         error=None if result.get("ok") else
+         (result.get("detail") or "hardening command failed"))
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="hub.security", description=__doc__)
     sub = p.add_subparsers(dest="action", required=True)
     sub.add_parser("audit")
+
+    sc = sub.add_parser("scan")
+    sc.add_argument("--full", action="store_true", help="full scan (default: quick)")
+    sc.add_argument("--confirm", action="store_true")
+    for verb in ("firewall-on", "realtime-on", "disable-smb1", "update-sigs"):
+        s = sub.add_parser(verb)
+        s.add_argument("--confirm", action="store_true")
 
     it = sub.add_parser("intruders")
     it.add_argument("--hours", type=int, default=INTRUDERS_HOURS_DEFAULT,
@@ -219,6 +308,8 @@ def main() -> None:
             do_audit(args)
         elif args.action == "intruders":
             do_intruders(args)
+        elif args.action in HARDENING_VERBS:
+            do_harden(args)
     except KillSwitchEngaged as e:
         emit(False, args.action, error=str(e))
     except subprocess.TimeoutExpired:
