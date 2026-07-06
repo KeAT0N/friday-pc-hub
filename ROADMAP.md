@@ -17,7 +17,7 @@ A single runner (`python -m tests.run`) executes everything and emits a summary.
 - [x] test_system.py — telemetry shape, cpu percent = per-core mean, pid-0 exclusion, top normalized whole-machine (9 tests)
 - [x] test_files.py — containment allowlist, `..`/outside escape, refused dot-dirs, key-material refusal, binary + bounded/truncated read (19 tests)
 - [x] test_credentials.py — Secret wrapper per-channel, provider registry, format validation, fail-closed enroll (26 tests). FOUND+FIXED a real bug: Windows `isatty()` returns True for NUL, so the non-TTY enroll gate hung on getpass instead of refusing — hardened with a GetConsoleMode probe.
-- [ ] test_apps.py — ambiguity errors, guarded kill fail-closed (mock-based)
+- [x] test_apps.py — guarded-kill owner scoping (same-user-only, identity-required, guard-before-scan), resolve ambiguity refusal, kill-switch refusal (12 tests, psutil mocked)
 - [ ] test_friday.py — dry-run planning, protect-layer logic, exit codes
 
 ## Phase 2 — Breadth: new capable modules
@@ -96,3 +96,7 @@ protection and are reversible where possible.
   intruders." Added as a read-only-audit-first security module + guarded
   hardening verbs + a FRIDAY lockdown scene. Loop stop-condition extended to
   cover all phases (was stopping at Phase 4).
+- 2026-07-05: test_apps (12) — mocked psutil to prove do_kill fail-closed owner
+  scoping (skips other-user/None-owner/wrong-name, refuses w/o identity, guard
+  trips before any scan) + resolve_one_window ambiguity refusal. Suite 92 green.
+  Phase 1 complete except test_friday.
