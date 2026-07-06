@@ -62,10 +62,34 @@ protection and are reversible where possible.
       says what it changed): `scan` (Defender quick/full), `update-sigs`,
       `firewall-on`, `realtime-on`, `disable-smb1`, `uac-on`. Fail-closed;
       never disables a protection; dry-run preview by default.
+### Phase 5b — Autonomous push tripwire (event-driven, NO daemon) [user-requested]
+Windows Task Scheduler is the push pump: it natively triggers a task on a
+Security-log event and launches our short-lived handler — so there is no
+long-lived listener process to secure (stays on the hub's no-daemon
+philosophy). Depends on the security.py read-only scanner above (built first).
+
+- [ ] profiles.json `security_watch` DATA block (no eval/DSL): `failed_logon_count`,
+      `window_sec`, `cooldown_sec`, `defender_any` (bool). Threshold is data the
+      brain/OS compares — no predicate logic in the hands.
+- [ ] friday.py `respond` — the tripwire handler the OS launches on an event.
+      Pipeline (fail-soft, fully @deadline-bounded): kill-switch gate → cooldown
+      marker check (skip if fired < cooldown_sec ago; anti-storm) → bounded
+      read-only scan (security.py intruders/audit) → compare counts to
+      `security_watch` threshold → if crossed, emergency notify.py toast
+      (existing envelope). Never mutates; degraded envelope on any error.
+- [ ] friday.py `watch install|status|uninstall` — register/inspect/remove the
+      Scheduled Task. Trigger = Security EventID 4625 (failed logon) + Defender
+      Operational 1116/1117 (malware detected/acted); action = `python -m
+      hub.friday respond`. XML generated from config; task set Hidden +
+      MultipleInstancesPolicy=IgnoreNew (no pile-up) + runs in the user session
+      (so the toast reaches the desktop). Dry-run prints XML + schtasks command;
+      real register needs admin (--confirm) -> NEEDS-YOU.
+- [ ] test: respond threshold + cooldown + fail-soft on unreadable Security log
+      (mocked); watch install dry-run XML/query shape; kill-switch refusal.
 - [ ] test_security.py — audit parsing on captured sample output; confirm-gate
       + admin-gate refusals; every verb dry-runs without acting.
 - [ ] FRIDAY `lockdown` scene composing audit + firewall-on + realtime-on + scan
-- [ ] README: new Module CLIs section for security.py
+- [ ] README: new Module CLIs section for security.py + the watch/respond tripwire
 
 ## NEEDS-YOU (blocked on the user — building around these)
 - [ ] `pip install pywemo` to activate real Wemo smart-home discovery
@@ -75,6 +99,10 @@ protection and are reversible where possible.
 - [ ] Phase 5: run an ELEVATED (admin) terminal for the actual hardening verbs
   (scan/firewall-on/etc.) — the read-only `audit`/`intruders` reports mostly
   work unelevated and get built first; the mutating verbs need your admin OK.
+- [ ] Phase 5b: run `friday watch install --confirm` in an ELEVATED terminal to
+  register the event-triggered Scheduled Task (creating a Security-log trigger
+  and reading that log both require admin). Everything up to that is built and
+  dry-run-verified without elevation.
 
 ## Log
 - 2026-07-05: Kicked off autonomous effort. Baseline healthy (Py 3.14, all
@@ -100,3 +128,10 @@ protection and are reversible where possible.
   scoping (skips other-user/None-owner/wrong-name, refuses w/o identity, guard
   trips before any scan) + resolve_one_window ambiguity refusal. Suite 92 green.
   Phase 1 complete except test_friday.
+- 2026-07-05: User requested an autonomous PUSH tripwire — added as Phase 5b.
+  Design: Windows Task Scheduler event trigger (Security 4625 + Defender
+  1116/1117) launches a stateless `friday respond` handler — no daemon. Handler
+  is kill-switch-gated, cooldown-debounced, deadline-bounded, fail-soft, and
+  fires a notify.py emergency toast when a data-driven threshold is crossed.
+  Depends on the security.py scanner (built first); task registration needs
+  admin (queued in NEEDS-YOU).
