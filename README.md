@@ -377,6 +377,23 @@ bytes never touch stdout. The orchestrator then sends the file via files.py's
 staging channel. BGRX→RGBA is a C-level slice swap (no per-pixel Python loop),
 so even a 2560px grab encodes fast. pywin32 + stdlib only.
 
+### hub/security.py — PC security posture audit (read-only)
+
+```
+python hub\security.py audit             read-only posture scorecard + concerns
+```
+
+Notes: one bounded PowerShell gather assembles Defender (real-time/AV/tamper/
+signature age), firewall profiles, UAC, RDP, SMBv1, listening TCP ports,
+BitLocker, local admins, and the guest account into JSON — each check
+try/catch'd so a missing cmdlet or unelevated run yields `null` for that field,
+never sinking the report. Most checks work unelevated; BitLocker (and sometimes
+local admins) need admin and come back null with a note. `concerns` flags only
+hard on/off invariants (Defender off, a firewall profile off, UAC off, RDP on,
+SMBv1 on, guest on) — universally-agreed issues, NOT tunable thresholds; numeric
+values are reported raw so the orchestrator decides what's "too old". Mutating
+hardening verbs (scan/firewall-on/…) are a later, admin-gated + --confirm step.
+
 ### hub/files.py — contained file access
 
 ```

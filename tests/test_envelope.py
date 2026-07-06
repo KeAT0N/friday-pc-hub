@@ -39,6 +39,7 @@ SAFE_INVOCATIONS = [
     ("media", ["keys"]),
     ("window", ["list"]),
     ("screen", ["displays"]),
+    ("security", ["audit"]),
 ]
 
 

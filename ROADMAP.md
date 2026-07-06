@@ -36,9 +36,12 @@ clipboard, media, window, screen (+ audio covered by media).**
 
 ## Phase 3 — Depth: richer FRIDAY orchestration
 - [x] `status` scene — read-only health dashboard: kill-switch state + system snapshot + net status + mail counts + non-aborting vault audit, one envelope, exit 0/2 (5 tests). Reports the kill-switch instead of obeying it.
-- [ ] scene composition: new profiles leveraging window/audio/power modules
 - [x] `goodnight` scene — safe-wipe + lights off + RGB off + lock, via a data profile + new reversible-only scene `power` step (shutdown/restart refused in scenes); fully dry-run-able (5 tests)
-- [ ] per-scene RGB + audio ducking integration
+- [~] scene composition (window/audio/power) — DEFERRED: the `power` step already composes power.py in goodnight; window-layout-in-scene is niche (do ad-hoc via window.py); RGB already per-scene. Not worth a bespoke step.
+- [~] per-scene RGB + audio ducking — DEFERRED: RGB is already per-scene (rgb key). Audio ducking needs pycaw (NEEDS-YOU); media keys can't set an absolute duck level. Revisit if pycaw lands.
+
+**Phase 3 substantially COMPLETE ✅ — status + goodnight scenes shipped; the two
+remaining items deferred with rationale (low value / need pycaw).**
 
 ## Phase 4 — Hardening
 - [ ] envelope contract fuzz (control chars, unicode, oversized fields)
@@ -52,12 +55,12 @@ a read-only security *sensor* first (dumb hands, brain scores it), then
 guarded, confirm-gated, admin-aware hardening actions that NEVER weaken
 protection and are reversible where possible.
 
-- [ ] security.py `audit` — read-only posture scorecard, one envelope:
-      Defender (real-time on? sigs current? last scan) via Get-MpComputerStatus;
-      firewall profile states (Get-NetFirewallProfile); pending Windows Updates;
-      BitLocker status; UAC level; RDP + SMBv1 enabled?; listening TCP ports
-      (Get-NetTCPConnection -State Listen); enabled local admins + guest acct.
-      Each normalized to bool/number so the brain can flag issues.
+- [x] security.py `audit` — read-only posture scorecard: Defender (realtime/AV/
+      antispyware/tamper/signature age/quick-scan age), firewall profiles, UAC,
+      RDP, SMBv1, listening TCP ports, BitLocker, local admins, guest. One
+      bounded PowerShell gather, per-check try/catch (null on fail), works
+      unelevated. `concerns` flags hard on/off invariants only (no thresholds).
+      (8 tests; concern/notes logic unit-tested on samples + live smoke.)
 - [ ] security.py `intruders` — read-only recent-signal report: failed logons
       (Event ID 4625), new/changed local admins, listening ports vs a saved
       baseline, recently added scheduled tasks / Run-key autoruns.
@@ -183,3 +186,8 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   restart refused so a data profile can't silently auto-confirm an irreversible
   power-off). goodnight profile = wipe + lights off + rgb off + lock. Verified
   dry-run plans the lock without acting. 176 green.
+- 2026-07-05: Phase 3 remainder deferred (rationale in-line); jumped to Phase 5.
+  security.py `audit` shipped — read-only posture scorecard via one bounded
+  PowerShell gather (Defender/firewall/UAC/RDP/SMB1/ports/BitLocker/admins/
+  guest), per-check fail-soft, `concerns` = hard on/off invariants only.
+  Live audit on this box: zero concerns (well-secured). 184 green.
