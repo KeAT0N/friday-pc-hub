@@ -11,6 +11,7 @@ assert codes directly rather than via the strict envelope contract.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import tempfile
@@ -20,6 +21,20 @@ from unittest import mock
 
 from hub import friday
 from tests._helpers import run_cli
+
+
+class _Emitted(Exception):
+    pass
+
+
+STATUS_DEFAULTS = {
+    "safety": {"ok": True, "data": {"engaged": False, "file": "f", "detail": None}},
+    "system": {"ok": True, "data": {"cpu": {"percent": 5.0},
+                                    "memory": {"percent": 40.0},
+                                    "disk": [{"mount": "C:", "free_gb": 100.0}]}},
+    "net": {"ok": True, "data": {"online": True, "local_ip": "1.2.3.4",
+                                 "hostname": "h"}},
+}
 
 
 def wins(*rows):
@@ -162,6 +177,63 @@ class TestRunModule(unittest.TestCase):
         self.assertIn("error", r)
 
 
+class TestStatusScene(unittest.TestCase):
+    def _status(self, no_mail=True, overrides=None):
+        store = []
+        overrides = overrides or {}
+
+        def fake_emit(ok, data=None, error=None, code=0):
+            store.append({"ok": ok, "data": data, "error": error, "code": code})
+            raise _Emitted
+
+        def fake_run(module, argv, timeout=friday.MODULE_TIMEOUT):
+            if module in overrides:
+                return overrides[module]
+            if module == "credentials":
+                svc = argv[argv.index("--service") + 1]
+                return {"ok": True, "data": {"exists": svc == "icloud_mail"}}
+            return STATUS_DEFAULTS.get(module, {"ok": False, "error": "unexpected"})
+
+        with mock.patch.object(friday, "emit", fake_emit), \
+                mock.patch.object(friday, "run_module", side_effect=fake_run), \
+                mock.patch.object(friday, "mail_glance",
+                                  return_value={"icloud": {"unread": 2,
+                                                           "inbox_total": 9}}):
+            try:
+                friday.status(argparse.Namespace(action="status", no_mail=no_mail))
+            except _Emitted:
+                pass
+        return store[0]
+
+    def test_all_ok_assembles_dashboard(self):
+        out = self._status()
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["code"], 0)
+        self.assertEqual(set(out["data"]),
+                         {"kill_switch", "system", "net", "mail", "vault",
+                          "elapsed_sec"})
+        self.assertIsNone(out["data"]["mail"])  # --no-mail
+        self.assertEqual(out["data"]["vault"],
+                         {"icloud_mail": True, "gmail": False, "github": False})
+
+    def test_net_failure_degrades_exit2(self):
+        out = self._status(overrides={"net": {"ok": False, "error": "down"}})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], 2)
+        self.assertIn("error", out["data"]["net"])
+
+    def test_mail_included_when_enabled(self):
+        out = self._status(no_mail=False)
+        self.assertIsNotNone(out["data"]["mail"])
+        self.assertEqual(out["data"]["mail"]["icloud"]["unread"], 2)
+
+    def test_reports_kill_switch_without_obeying(self):
+        # even ENGAGED, status still runs and reports it (read-only scene)
+        out = self._status(overrides={"safety": {
+            "ok": True, "data": {"engaged": True, "file": "f", "detail": {}}}})
+        self.assertTrue(out["data"]["kill_switch"]["engaged"])
+
+
 class TestCLIExitCodes(unittest.TestCase):
     def test_dry_run_trigger_clean_exit0(self):
         env, code = run_cli("friday", "trigger", "chill", "--dry-run")
@@ -174,6 +246,14 @@ class TestCLIExitCodes(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertFalse(env["ok"])
         self.assertIn("unknown profile", env["error"])
+
+    def test_status_scene_live(self):
+        # read-only dashboard against the live machine; exit 0 (or 2 if a read
+        # genuinely failed), never 1. Assert the envelope + sections assemble.
+        env, code = run_cli("friday", "status", "--no-mail", timeout=45)
+        self.assertIn(code, (0, 2))
+        for key in ("kill_switch", "system", "net", "vault"):
+            self.assertIn(key, env["data"])
 
     def test_kill_switch_aborts_exit1(self):
         with tempfile.TemporaryDirectory(prefix="hubtest_") as d:

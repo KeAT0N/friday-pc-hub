@@ -488,6 +488,68 @@ def trigger(args) -> None:
                "elapsed_sec": elapsed, "dry_run": args.dry_run})
 
 
+# ---------------------------------------------------------------- status scene
+
+STATUS_VAULT_SERVICES = ("icloud_mail", "gmail", "github")
+
+
+def vault_audit(services) -> dict:
+    """Non-aborting existence audit of vault services (unlike require_credentials
+    which fail-closes a boot). Pure read: only booleans, never values."""
+    out = {}
+    for svc in services:
+        r = run_module("credentials", ["check", "--service", svc,
+                                       "--account", VAULT_ACCOUNT,
+                                       "--provider", "keyring"])
+        out[svc] = bool(r.get("ok") and (r.get("data") or {}).get("exists"))
+    return out
+
+
+def status(args) -> None:
+    """Read-only health dashboard: composes the read-only module CLIs into one
+    snapshot. Never acts, so it also REPORTS the kill-switch rather than obeying
+    it — the one scene you want to work even when the hub is disarmed."""
+    t0 = time.monotonic()
+    ks = run_module("safety", ["kill", "status"])
+    kill_switch = ks.get("data") if ks.get("ok") else {"error": ks.get("error")}
+    log("kill-switch: " + ("ENGAGED" if (kill_switch or {}).get("engaged")
+                           else "clear"))
+
+    system = run_module("system", ["snapshot", "--top", "5", "--sample", "0.3"])
+    net = run_module("net", ["status"])
+    mail = None if args.no_mail else mail_glance()
+    vault = vault_audit(STATUS_VAULT_SERVICES)
+
+    sysd = system["data"] if system.get("ok") else {"error": system.get("error")}
+    netd = net["data"] if net.get("ok") else {"error": net.get("error")}
+    if system.get("ok"):
+        disks = ", ".join(f"{d['mount']} {d['free_gb']}GB free"
+                          for d in sysd["disk"][:2])
+        log(f"system: cpu {sysd['cpu']['percent']}%  "
+            f"mem {sysd['memory']['percent']}%  disk {disks}")
+    else:
+        log(f"system: ERR ({system.get('error')})")
+    if net.get("ok"):
+        log(f"net: {'online' if netd['online'] else 'OFFLINE'}  ip {netd['local_ip']}")
+    else:
+        log(f"net: ERR ({net.get('error')})")
+    if mail is not None:
+        log("mail: " + " - ".join(
+            f"{p} {i['unread']} unread" if "unread" in i else f"{p} ERR"
+            for p, i in mail.items()))
+    log("vault: " + "  ".join(
+        f"{k} {'OK' if v else 'MISSING'}" for k, v in vault.items()))
+
+    elapsed = round(time.monotonic() - t0, 1)
+    degraded = not system.get("ok") or not net.get("ok") \
+        or (mail is not None and any("error" in v for v in mail.values()))
+    log(f"status in {elapsed}s" + (" (DEGRADED)" if degraded else ""))
+    emit(not degraded, code=2 if degraded else 0,
+         error="degraded: a read failed" if degraded else None,
+         data={"kill_switch": kill_switch, "system": sysd, "net": netd,
+               "mail": mail, "vault": vault, "elapsed_sec": elapsed})
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="hub.friday", description=__doc__)
     sub = p.add_subparsers(dest="action", required=True)
@@ -501,9 +563,12 @@ def main() -> None:
     t.add_argument("profile")
     t.add_argument("--dry-run", action="store_true")
 
+    st = sub.add_parser("status")
+    st.add_argument("--no-mail", action="store_true")
+
     args = p.parse_args()
     try:
-        {"boot": boot, "trigger": trigger}[args.action](args)
+        {"boot": boot, "trigger": trigger, "status": status}[args.action](args)
     except KillSwitchEngaged as e:
         emit(False, error=str(e), code=1)
     except Exception as e:

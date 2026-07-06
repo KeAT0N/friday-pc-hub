@@ -35,7 +35,7 @@ Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
 clipboard, media, window, screen (+ audio covered by media).**
 
 ## Phase 3 — Depth: richer FRIDAY orchestration
-- [ ] `status` scene — one-shot health dashboard (system + mail + vault audit)
+- [x] `status` scene — read-only health dashboard: kill-switch state + system snapshot + net status + mail counts + non-aborting vault audit, one envelope, exit 0/2 (5 tests). Reports the kill-switch instead of obeying it.
 - [ ] scene composition: new profiles leveraging window/audio/power modules
 - [ ] `goodnight` scene — wipe, lock, monitors off, lights off
 - [ ] per-scene RGB + audio ducking integration
@@ -174,3 +174,7 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   back chunk-by-chunk in tests; capture pipeline tested with grab mocked (no
   real screenshots on disk). Verified a real 2560x1080 capture live. audio.py
   marked done-by-media (pycaw deferred). ** Phase 2 COMPLETE: 166 green. **
+- 2026-07-05: Phase 3 scene 1 — friday `status`. Read-only dashboard composing
+  safety/system/net/mail/credentials via run_module; non-aborting vault audit;
+  reports (not obeys) the kill-switch. Live run: cpu/mem/disk/online/vault all
+  read in ~5s. Composition tested with run_module mocked + a live smoke. 171 green.

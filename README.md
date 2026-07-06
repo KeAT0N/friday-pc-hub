@@ -204,7 +204,15 @@ python -m hub.friday boot    --profile dev  [--no-mail] [--dry-run]
 python -m hub.friday trigger sit-down       [--dry-run]
 python -m hub.friday trigger chill          [--dry-run]
 python -m hub.friday trigger optimize       [--dry-run]
+python -m hub.friday status                 [--no-mail]   read-only health dashboard
 ```
+
+The **status** scene is a read-only, one-shot dashboard: it composes the
+read-only module CLIs (safety kill-status + system snapshot + net status +
+mail counts + a non-aborting vault audit) into a single envelope. Because it
+never acts, it REPORTS the kill-switch state rather than obeying it — the one
+scene you want working even when the hub is disarmed. Exit 0 clean, 2 if a
+read failed, never 1.
 
 Composes the tested module CLIs into deterministic routines — not a sensor,
 not LLM logic. Profiles are DATA in `hub/profiles.json`; editing one never
