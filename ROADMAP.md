@@ -28,7 +28,7 @@ Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
 - [x] power.py — status (RO) + lock/monitor-off/sleep/hibernate/shutdown/restart/cancel, all confirm-gated dry-run-by-default, ctypes-only, bounded (7 tests)
 - [ ] clipboard.py — read/write clipboard, bounded, key-material sniffing
 - [ ] media.py — playback control via media keys (play/pause/next/prev/vol)
-- [ ] net.py — wifi status, connectivity/ping, adapter list, bounded speed probe
+- [x] net.py — status (hostname/IP/online), adapters (up/speed/IPv4/6/MAC), wifi (netsh), bounded ping w/ host-injection guard + anchored parse (10 tests). Found+fixed a ping-parse bug (bytes=/TTL= misread as counts).
 - [ ] screen.py — screenshot to staged file (goes through files.py staging)
 
 ## Phase 3 — Depth: richer FRIDAY orchestration
@@ -145,3 +145,7 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   control; every acting verb dry-run-by-default + --confirm (proven by mocking
   the OS-effect helpers, so tests never lock/sleep/shut-down the box). status
   read verified live (AC, Balanced scheme). Added to envelope contract. 116 green.
+- 2026-07-05: Phase 2 module 2 — net.py (read-only). status/adapters/wifi/ping,
+  dependency-free, host-injection guard on ping. Found+fixed a real parse bug:
+  the loose regex read `bytes=32`/`TTL=128` as sent/received counts; re-anchored
+  on the `Packets:` line + added a locale-independent regression test. 126 green.

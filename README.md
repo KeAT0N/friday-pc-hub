@@ -254,6 +254,23 @@ stdout = JSON envelope; stderr = live `[FRIDAY]` narration.
 Exit: 0 clean · 1 aborted · 2 degraded. `--dry-run` shows the full plan
 (including which windows the wipe would close vs protect) without acting.
 
+### hub/net.py — read-only network telemetry
+
+```
+python hub\net.py status                      hostname, primary IP, online probe
+python hub\net.py adapters                     per-NIC up/speed/IPv4/IPv6/MAC
+python hub\net.py wifi                          SSID / signal / state (or absent)
+python hub\net.py ping --host H [--count N]     bounded reachability + loss/latency
+```
+
+Notes: dependency-free (psutil + socket + netsh/ping). Read-only — never
+changes network config. `status`'s online check is a bounded TCP connect to a
+public DNS port (no data sent). `ping` validates the host against a safe
+charset (no leading dash → no arg injection), caps `--count`, and carries
+per-reply + overall timeouts; the summary parse is anchored on the `Packets:`
+line so `bytes=`/`TTL=` numbers are never mistaken for counts (English-locale
+best-effort, honest `null` otherwise — reachability comes from the exit code).
+
 ### hub/power.py — power & session control (confirm-gated)
 
 ```
