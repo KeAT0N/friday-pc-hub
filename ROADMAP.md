@@ -14,7 +14,7 @@ A single runner (`python -m tests.run`) executes everything and emits a summary.
 - [x] tests/ scaffold + `tests.run` discovery runner
 - [x] test_safety.py — kill-switch, Deadline, @deadline, @retry, wait_until (23 tests, green)
 - [x] test_envelope.py — cross-module: valid ASCII envelope + exit code mirrors `ok` (10 modules)
-- [ ] test_system.py — telemetry shape, percent normalization, pid-0 exclusion
+- [x] test_system.py — telemetry shape, cpu percent = per-core mean, pid-0 exclusion, top normalized whole-machine (9 tests)
 - [x] test_files.py — containment allowlist, `..`/outside escape, refused dot-dirs, key-material refusal, binary + bounded/truncated read (19 tests)
 - [x] test_credentials.py — Secret wrapper per-channel, provider registry, format validation, fail-closed enroll (26 tests). FOUND+FIXED a real bug: Windows `isatty()` returns True for NUL, so the non-TTY enroll gate hung on getpass instead of refusing — hardened with a GetConsoleMode probe.
 - [ ] test_apps.py — ambiguity errors, guarded kill fail-closed (mock-based)
@@ -62,3 +62,6 @@ Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
   Hardened `_stdin_is_interactive()` with a GetConsoleMode probe (fails for
   NUL/redirected, succeeds for a real console). Enroll now refuses in ~0.5s.
   Also hardened tests/_helpers run_cli to use DEVNULL stdin. Suite at 71 green.
+- 2026-07-05: test_system (9) — telemetry invariants, pid-0 exclusion, whole-
+  machine cpu normalization verified against the live box. Suite at 80 green.
+  Phase 1 remaining: test_apps, test_friday (both need light mocking).
