@@ -15,7 +15,7 @@ A single runner (`python -m tests.run`) executes everything and emits a summary.
 - [x] test_safety.py — kill-switch, Deadline, @deadline, @retry, wait_until (23 tests, green)
 - [x] test_envelope.py — cross-module: valid ASCII envelope + exit code mirrors `ok` (10 modules)
 - [ ] test_system.py — telemetry shape, percent normalization, pid-0 exclusion
-- [ ] test_files.py — containment allowlist, symlink/`..` escape, key-material refusal, bounded read
+- [x] test_files.py — containment allowlist, `..`/outside escape, refused dot-dirs, key-material refusal, binary + bounded/truncated read (19 tests)
 - [ ] test_credentials.py — Secret wrapper seals all 8 channels, existence-only CLI
 - [ ] test_apps.py — ambiguity errors, guarded kill fail-closed (mock-based)
 - [ ] test_friday.py — dry-run planning, protect-layer logic, exit codes
@@ -52,3 +52,7 @@ Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
 ## Log
 - 2026-07-05: Kicked off autonomous effort. Baseline healthy (Py 3.14, all
   selftests green). Chose unittest over pytest to avoid new deps. Roadmap created.
+- 2026-07-05: test_safety (23) + test_envelope (cross-module) committed. 26 green.
+- 2026-07-05: test_files (19) — containment boundary. Confirmed deny-dir logic
+  by accident: a temp-rooted sandbox is blocked because system temp is under
+  AppData (a refused dir); sandbox relocated under home. Suite at 45 green.
