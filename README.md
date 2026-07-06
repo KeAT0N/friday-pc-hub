@@ -1,26 +1,42 @@
 # Remote Hub
 
-Phone → Claude → PC control system. The user issues requests from the Claude
-app on their phone; Claude (the orchestrating session on this Windows 11 PC)
-is the **brain**, and the Python modules in `hub/` are deliberately **dumb,
-reliable hands**. There is no daemon, no custom RPC layer, no LLM logic in the
-scripts — the Claude session itself is the runtime, which collapses most of
-the attack surface by construction.
+A phone-controlled control system for a Windows 11 PC, built from small, safe,
+single-purpose Python CLIs. You reach the machine from a **terminal** — locally,
+or from your phone over a private Tailscale network + key-only SSH (e.g. the
+Termius app) — and drive it two ways:
 
-This README is the execution-model contract. A future Claude session that
-reads it should operate the hub identically to the one that built it.
+- **Directly** — run `hub <module> <command>` yourself (e.g.
+  `hub power lock --confirm`). `hub help` lists everything.
+- **Through Claude** — launch Claude Code (`claude`) in that terminal (or use
+  the Claude app), and Claude becomes the **brain**: it reads your
+  natural-language request, chains the module CLIs, parses the JSON they emit,
+  evaluates predicates, decides what to do next, and drives the browser via its
+  Chrome MCP tools.
+
+Either way the Python modules in `hub/` are deliberately **dumb, reliable
+hands** — no daemon, no custom RPC layer, no LLM logic in the scripts. Each is a
+stateless CLI that performs one action and prints one JSON envelope. That split
+— smart brain, dumb hands — collapses most of the attack surface by construction.
+
+This README is the execution-model contract: whoever operates the hub — you at
+the terminal, or a Claude session — should drive it the same way.
 
 ```
-┌─────────┐   Claude app    ┌──────────────────┐
-│  Phone   │ ──────────────▶ │  Claude session   │  ← brain: plans, parses JSON,
-└─────────┘                 │  (this repo cwd)  │    evaluates predicates, decides
-                            └───┬───────┬──────┘
-                    PowerShell/Bash     │ native Chrome MCP
-                                ▼       ▼
-                        ┌──────────┐  ┌─────────────┐
-                        │  hub/*.py │  │ Chrome tabs  │  ← browser leg has NO local
-                        │  modules  │  │ (extension)  │    module on purpose
-                        └──────────┘  └─────────────┘
+  ┌──────────────────────┐   Tailscale +     ┌─────────────────────────┐
+  │ Phone (Termius/SSH)   │ ──key-only SSH──▶ │  Terminal on the PC      │
+  │  — or a local shell   │                   └────────────┬────────────┘
+  └──────────────────────┘                                │
+                                    ┌───────────────────────┴───────────────────┐
+                                    ▼                                            ▼
+                           hub <module> <cmd>                    claude  (the brain: parse NL,
+                           (you are the driver)                  chain modules, eval predicates,
+                                    │                            + Chrome MCP for the browser)
+                                    └──────────────────┬──────────────────────────┘
+                                                       ▼
+                                              ┌──────────────┐
+                                              │  hub/*.py    │  dumb, reliable hands:
+                                              │  modules     │  one action, one JSON
+                                              └──────────────┘  envelope, then exit
 ```
 
 ## Design philosophy
@@ -41,9 +57,10 @@ reads it should operate the hub identically to the one that built it.
 4. **Fail closed, refuse loudly.** Ambiguity (two windows matching a title) is
    a structured error listing candidates, never a guess. Everything that can
    wait has a deadline; everything that can loop has a ceiling.
-5. **Browser = native extension, not scripts.** Navigation, reading, clicking
-   happen through Claude's Chrome MCP tools live. Selenium-style automation is
-   explicitly out of scope.
+5. **Browser = native extension, not scripts.** When Claude is orchestrating,
+   navigation/reading/clicking happen through its Chrome MCP tools live; there
+   is deliberately no browser-automation module (Selenium-style automation is
+   out of scope). Direct-terminal use has no browser leg.
 6. **`ensure_ascii=True` everywhere.** JSON envelopes are pure ASCII
    (`\uXXXX` escapes) so cp1252 consoles can never corrupt them.
 
@@ -51,7 +68,7 @@ reads it should operate the hub identically to the one that built it.
 
 These are enforced by construction, not convention:
 
-- **Secrets never transit chat.** `credentials.py` exposes secrets only
+- **Secrets never hit stdout.** `credentials.py` exposes secrets only
   in-process via `Secret.reveal()`. The CLI is *existence-only* — there is no
   code path that writes a secret value to stdout. The `Secret` wrapper seals
   every implicit channel (repr/str/format/log-interpolation redact; json,
@@ -147,7 +164,7 @@ through an orchestration channel (non-TTY stdin) it refuses and prints the
 command to run at the PC instead. The terminal check is hardened for Windows,
 where `isatty()` wrongly reports the NUL device as a TTY — a `GetConsoleMode`
 probe confirms a real console so the gate refuses (never hangs on getpass)
-when driven headless. Secrets therefore never appear in chat logs, argv,
+when driven headless. Secrets therefore never appear in stdout, logs, argv,
 process lists, or shell history. `--stdin` permits piping from another local
 process for scripted enrollment (BOM-stripped so a shell-injected byte-order
 mark never becomes part of the secret). `--expect-format` validates the
@@ -223,7 +240,8 @@ mailbox can't flood context. `send` is fail-closed: validates addresses
 (header-injection-safe regex), caps subject/body, and only transmits with
 `--confirm-send` — default is a dry-run preview. Kill-switch is asserted
 before every IMAP/SMTP handshake; all sockets carry a 20s timeout.
-Orchestration rule: an actual send is confirmed with the user in chat first.
+Orchestration rule: a real send only transmits with `--confirm`; when Claude is
+driving, it confirms the recipient/subject/body with the user first.
 
 ### hub/friday.py — FRIDAY orchestrator (router + scenes)
 
@@ -382,12 +400,14 @@ python hub\power.py cancel                          abort a pending shutdown
 
 Notes: dependency-free (ctypes → user32/powrprof/kernel32 + shutdown.exe).
 Every *acting* verb is a dry-run PREVIEW by default and only fires with
-`--confirm` (mirrors mail's fail-closed send), so the orchestrator confirms
-disruptive actions in chat first. `status` is read-only; `cancel` is an
+`--confirm` (mirrors mail's fail-closed send), so a disruptive action never
+fires without it (and when Claude is driving, it confirms with the user first).
+`status` is read-only; `cancel` is an
 always-safe undo. Effects are bounded — SendMessageTimeout blanks the display
 without hanging, shutdown.exe carries a timeout, and `shutdown`/`restart`
-default to a 60s delay so `cancel` has a window. Orchestration rule: an actual
-`--confirm` power action is confirmed with the user in chat first.
+default to a 60s delay so `cancel` has a window. Orchestration rule: a
+`--confirm` power action requires that explicit flag; when Claude is driving,
+it confirms with the user first.
 
 ### hub/media.py — media transport & volume keys
 
@@ -418,7 +438,7 @@ clobber the clipboard so they are confirm-gated (dry-run preview by default).
 Secret hygiene: `get` runs a conservative heuristic (PEM key blocks, secret
 keywords, or a single opaque high-entropy token) and WITHHOLDS matching content
 (`content:null`, `looks_sensitive:true`) unless `--reveal` — so a hub read never
-dumps a copied password into chat. Clipboard opens are bounded (deadline+retry)
+dumps a copied password into its output. Clipboard opens are bounded (deadline+retry)
 so a momentarily-locked clipboard can't hang the hub. Uses win32clipboard.
 
 ### hub/screen.py — screen capture (staged, dependency-free PNG)
@@ -486,19 +506,24 @@ python hub\files.py stage  --path P [--max-mb N]
 
 Notes: `search` reports `complete`/`bounded_by` honestly (timeout, scan cap,
 result limit). `stage` validates containment + size and returns sha256; the
-orchestrator then sends the file to the phone via its native file channel.
+operator then pulls the staged file (e.g. `scp` over the SSH channel, or
+Claude's native file channel when it is driving).
 
-## Orchestration pattern
+## Driving the hub
 
-A workflow is: Claude chains module calls + browser actions, evaluates the
-JSON between steps, and reports a unified result. Canonical example (proven
-end-to-end): launch app → navigate Chrome to a login page → read page state →
-`credentials.py check` → **halt** the auth leg if `exists:false` (fail-closed
-credential gate) → graceful cleanup → unified JSON report to chat.
+Two modes, same modules:
 
-Predicate example: *"back up only if disk is safe"* →
-`python hub\system.py disk` → orchestrator checks `free_gb > 20` → proceed
-or halt.
+- **You drive it** (direct terminal) — run the CLIs and read the JSON yourself.
+  Predicate example, *"back up only if disk is safe"*: `hub system disk` →
+  check `free_gb > 20` → proceed or stop. `hub help` lists every command.
+- **Claude drives it** — launch `claude` in the terminal (or use the Claude
+  app) and it chains module calls + browser actions (Chrome MCP), evaluates the
+  JSON between steps, and reports a unified result. Canonical example (proven
+  end-to-end): launch app → navigate Chrome to a login page → read page state →
+  `credentials.py check` → **halt** the auth leg if `exists:false` (fail-closed
+  credential gate) → graceful cleanup → one JSON summary.
+
+Either way the modules are identical dumb hands; only the *driver* changes.
 
 ## Environment
 
