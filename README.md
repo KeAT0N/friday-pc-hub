@@ -254,6 +254,26 @@ stdout = JSON envelope; stderr = live `[FRIDAY]` narration.
 Exit: 0 clean · 1 aborted · 2 degraded. `--dry-run` shows the full plan
 (including which windows the wipe would close vs protect) without acting.
 
+### hub/window.py — window layout control
+
+```
+python hub\window.py list                                read-only: windows + geometry
+python hub\window.py move   <target> --x X --y Y [--width W --height H]
+python hub\window.py resize <target> --width W --height H
+python hub\window.py snap   <target> --to PRESET
+   target  = --hwnd H | --title S | --pid N   (ambiguity = error w/ candidates)
+   PRESET  = left right top bottom | top-left top-right bottom-left bottom-right
+             | maximize minimize restore center full
+```
+
+Notes: reuses apps.py's window enumerator; resolves to exactly one window
+(ambiguity is a structured error, never a guess) then acts directly — same
+posture as apps focus/close (a reposition is benign/reversible). Snap presets
+are computed from the window's monitor work area (taskbar excluded) via
+GetMonitorInfo, so halves/quadrants land right on multi-monitor setups; a
+maximized window is restored before positioning. pywin32 only, each op a single
+bounded Win32 call.
+
 ### hub/net.py — read-only network telemetry
 
 ```

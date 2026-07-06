@@ -23,7 +23,7 @@ A single runner (`python -m tests.run`) executes everything and emits a summary.
 ## Phase 2 — Breadth: new capable modules
 Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
 
-- [ ] window.py — enumerate/move/resize/snap windows, virtual-desktop switch, layout presets
+- [x] window.py — list (RO) + move/resize/snap; 12 snap presets from monitor work area; resolves one window (ambiguity=error) then acts like apps focus/close; pure snap-math unit-tested (13 tests). (virtual-desktop switch deferred — undocumented COM; not worth the fragility)
 - [ ] audio.py — master volume/mute, default device switch, per-app volume
 - [x] power.py — status (RO) + lock/monitor-off/sleep/hibernate/shutdown/restart/cancel, all confirm-gated dry-run-by-default, ctypes-only, bounded (7 tests)
 - [x] clipboard.py — get (read-only, secret-withholding heuristic + --reveal, length-capped) + confirm-gated set/clear, bounded clipboard opens (12 tests)
@@ -158,3 +158,8 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   reversible). All acting verbs tested with _tap mocked (no real volume/
   playback change). Fixed a Py3.14 argparse gotcha (literal % in help string).
   145 green.
+- 2026-07-05: Phase 2 module 5 — window.py. Snap/move/resize reusing apps
+  enum_windows; 12 presets from the monitor work area. Pure snap-math tested
+  directly; all mutating ops tested with Win32 helpers mocked (no real window
+  moves). Virtual-desktop switching deferred (undocumented COM, too fragile for
+  the hub's reliability bar). 158 green. Phase 2: 5/7 (screen, audio remain).
