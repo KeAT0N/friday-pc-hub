@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import struct
 import sys
 import time
@@ -138,13 +139,18 @@ def _output_dir() -> Path:
     return d
 
 
+UNIQUE_CAP = 10_000   # ceiling on the same-second de-dup loop
+
+
 def _unique_path(directory: Path) -> Path:
     stamp = time.strftime("%Y%m%d_%H%M%S")
     candidate = directory / f"screen_{stamp}.png"
     n = 1
-    while candidate.exists():
+    while candidate.exists() and n <= UNIQUE_CAP:   # bounded, not open-ended
         candidate = directory / f"screen_{stamp}_{n}.png"
         n += 1
+    if candidate.exists():   # astronomically unlikely; guarantee termination
+        candidate = directory / f"screen_{stamp}_{os.getpid()}_{n}.png"
     return candidate
 
 

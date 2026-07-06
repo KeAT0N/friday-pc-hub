@@ -43,11 +43,11 @@ clipboard, media, window, screen (+ audio covered by media).**
 **Phase 3 substantially COMPLETE ✅ — status + goodnight scenes shipped; the two
 remaining items deferred with rationale (low value / need pycaw).**
 
-## Phase 4 — Hardening
+## Phase 4 — Hardening  ✅ COMPLETE
 - [x] envelope contract fuzz — ensure_ascii holds end-to-end for BMP + astral unicode echoed into envelopes (round-trips via json.loads); notify._sanitize (control-strip/clamp/newline-keep) + mail._valid_addr (header-injection / multi-recipient rejection) hardening (test_fuzz.py, 10 tests)
 - [x] kill-switch coverage audit — one test asserts EVERY guarded module CLI (13) refuses (ok:false + "kill-switch", exit 1) when engaged; documents 2 exemptions (safety kill-status answers; friday status reports-not-obeys). (test_killswitch.py, 4 tests)
-- [ ] deadline/loop-ceiling audit
-- [ ] README kept in lockstep with every module added
+- [x] deadline/loop-ceiling audit — docs/AUDIT.md enumerates every loop/sleep site + bound; test_bounds.py (12 tests) locks the bounding constants + clamp behavior. FIXED two input-driven cases: system --sample clamp (SAMPLE_MAX) + screen unique-name ceiling (UNIQUE_CAP).
+- [x] README kept in lockstep — every module + scene documented as it shipped.
 
 ## Phase 5 — PC security hardening (`hub/security.py`) [user-requested]
 "Make the PC super safe from viruses and intruders." Same hub philosophy:
@@ -223,3 +223,8 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   round-trips BMP (café/☕) + astral (U+1F4A9) unicode echoed into errors;
   notify._sanitize + mail._valid_addr (header-injection) hardening verified.
   225 green. Only Phase 4 deadline/loop-ceiling audit remains before all-done.
+- 2026-07-06: Phase 4 COMPLETE — deadline/loop audit. docs/AUDIT.md maps every
+  loop/sleep to its bound; no genuinely unbounded loop found. Tightened two
+  input-driven cases: system --sample now clamps to SAMPLE_MAX (verified 99999s
+  -> 10s) and screen._unique_path has a UNIQUE_CAP ceiling. test_bounds.py (12)
+  guards the constants. 237 green. ** ALL PHASES 1-5 DONE except NEEDS-YOU. **

@@ -33,7 +33,13 @@ except ImportError:
     from safety import KillSwitchEngaged, assert_alive
 
 DEFAULT_SAMPLE = 0.5   # seconds of CPU observation; fixed, never user-loopable
+SAMPLE_MAX = 10.0      # hard cap so a bad --sample can't wedge the process
 DEFAULT_TOP = 5
+
+
+def _clamp_sample(sample: float) -> float:
+    """Keep the CPU sampling window bounded regardless of the --sample arg."""
+    return max(0.0, min(sample, SAMPLE_MAX))
 
 _GB = 1024 ** 3
 _MB = 1024 ** 2
@@ -50,6 +56,7 @@ def emit(ok: bool, action: str, data=None, error: str | None = None) -> None:
 # ---------------------------------------------------------------- sections
 
 def sec_cpu(sample: float) -> dict:
+    sample = _clamp_sample(sample)
     per_core = psutil.cpu_percent(interval=sample, percpu=True)
     freq = psutil.cpu_freq()
     return {
@@ -132,6 +139,7 @@ def sec_top(by: str, count: int, sample: float) -> list[dict]:
     CPU needs two observations: prime every process counter, wait the fixed
     sample window, then read the delta.
     """
+    sample = _clamp_sample(sample)
     cores = psutil.cpu_count(logical=True) or 1
     procs = []
     for p in psutil.process_iter(["pid", "name"]):
