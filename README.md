@@ -254,6 +254,28 @@ stdout = JSON envelope; stderr = live `[FRIDAY]` narration.
 Exit: 0 clean · 1 aborted · 2 degraded. `--dry-run` shows the full plan
 (including which windows the wipe would close vs protect) without acting.
 
+### hub/power.py — power & session control (confirm-gated)
+
+```
+python hub\power.py status                          read-only: AC/battery + scheme
+python hub\power.py lock         [--confirm]
+python hub\power.py monitor-off  [--confirm]
+python hub\power.py sleep        [--confirm]
+python hub\power.py hibernate    [--confirm]
+python hub\power.py shutdown     [--confirm] [--delay N]
+python hub\power.py restart      [--confirm] [--delay N]
+python hub\power.py cancel                          abort a pending shutdown
+```
+
+Notes: dependency-free (ctypes → user32/powrprof/kernel32 + shutdown.exe).
+Every *acting* verb is a dry-run PREVIEW by default and only fires with
+`--confirm` (mirrors mail's fail-closed send), so the orchestrator confirms
+disruptive actions in chat first. `status` is read-only; `cancel` is an
+always-safe undo. Effects are bounded — SendMessageTimeout blanks the display
+without hanging, shutdown.exe carries a timeout, and `shutdown`/`restart`
+default to a 60s delay so `cancel` has a window. Orchestration rule: an actual
+`--confirm` power action is confirmed with the user in chat first.
+
 ### hub/files.py — contained file access
 
 ```

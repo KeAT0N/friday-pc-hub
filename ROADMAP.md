@@ -25,7 +25,7 @@ Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
 
 - [ ] window.py — enumerate/move/resize/snap windows, virtual-desktop switch, layout presets
 - [ ] audio.py — master volume/mute, default device switch, per-app volume
-- [ ] power.py — lock/sleep/hibernate/monitor-off/scheduled-shutdown (all guarded, confirm-gated)
+- [x] power.py — status (RO) + lock/monitor-off/sleep/hibernate/shutdown/restart/cancel, all confirm-gated dry-run-by-default, ctypes-only, bounded (7 tests)
 - [ ] clipboard.py — read/write clipboard, bounded, key-material sniffing
 - [ ] media.py — playback control via media keys (play/pause/next/prev/vol)
 - [ ] net.py — wifi status, connectivity/ping, adapter list, bounded speed probe
@@ -141,3 +141,7 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   kill-skip guard (SELF_PROTECT names never reach apps.kill). Plus RGB/smart-
   home dry-run planning, run_module resilience, and CLI exit codes 0/1.
   ** Phase 1 COMPLETE: 109 tests green across all 7 modules. ** Phase 2 next.
+- 2026-07-05: Phase 2 module 1 — power.py. Dependency-free ctypes session
+  control; every acting verb dry-run-by-default + --confirm (proven by mocking
+  the OS-effect helpers, so tests never lock/sleep/shut-down the box). status
+  read verified live (AC, Balanced scheme). Added to envelope contract. 116 green.

@@ -33,6 +33,7 @@ SAFE_INVOCATIONS = [
     ("credentials", ["providers"]),
     ("credentials", ["check", "--service", "no-such-service-xyz"]),
     ("files", ["roots"]),
+    ("power", ["status"]),
 ]
 
 
