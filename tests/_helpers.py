@@ -12,14 +12,17 @@ ENVELOPE_KEYS = {"ok", "action", "data", "error"}
 
 
 def run_cli(module: str, *args: str, timeout: float = 30.0,
-            env: dict | None = None) -> tuple[dict, int]:
+            env: dict | None = None, input: str | None = None) -> tuple[dict, int]:
     """Run `python -m hub.<module> <args>` and return (parsed_envelope, exit_code).
 
     Raises AssertionError if stdout is not exactly one valid envelope object.
+    When `input` is None, stdin is /dev/null so nothing can inherit a real TTY
+    (keeps getpass-based paths deterministic and non-blocking in tests).
     """
     proc = subprocess.run(
         [sys.executable, "-m", f"hub.{module}", *args],
         cwd=REPO_ROOT, capture_output=True, text=True, timeout=timeout, env=env,
+        input=input, stdin=None if input is not None else subprocess.DEVNULL,
     )
     out = proc.stdout.strip()
     assert out, (f"hub.{module} {args} produced no stdout. "

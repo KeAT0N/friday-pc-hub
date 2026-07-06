@@ -276,15 +276,47 @@ def get_provider(name: str | None = None) -> CredentialProvider:
 
 # ---------------------------------------------------------------- enrollment
 
+def _stdin_is_interactive() -> bool:
+    """True only if a real interactive terminal is attached to stdin.
+
+    `sys.stdin.isatty()` alone is not trustworthy on Windows: it returns True
+    for the NUL device (how orchestration channels often present a closed
+    stdin), which would fool the enroll gate into calling getpass and hanging
+    on a console read. So on Windows we additionally require GetConsoleMode to
+    succeed on the stdin handle — it fails for NUL and redirected handles but
+    succeeds for a genuine console. Fail-closed: any uncertainty -> not
+    interactive -> enrollment refuses.
+    """
+    if not sys.stdin.isatty():
+        return False
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.windll.kernel32
+        k.GetStdHandle.restype = wintypes.HANDLE
+        k.GetStdHandle.argtypes = [wintypes.DWORD]
+        k.GetConsoleMode.argtypes = [wintypes.HANDLE,
+                                     ctypes.POINTER(wintypes.DWORD)]
+        k.GetConsoleMode.restype = wintypes.BOOL
+        handle = k.GetStdHandle(-10)  # STD_INPUT_HANDLE
+        mode = wintypes.DWORD()
+        return bool(k.GetConsoleMode(handle, ctypes.byref(mode)))
+    except Exception:
+        return False  # fail-closed: refuse rather than risk a getpass hang
+
+
 def _read_secret_locally(args) -> Secret:
     """Acquire the secret from the local terminal only — never from argv,
     never from an orchestration channel.
 
-    Default path demands an interactive TTY (hidden getpass prompt to stderr).
-    --stdin allows piping from another local process for scripted enrollment.
+    Default path demands an interactive terminal (hidden getpass prompt to
+    stderr). --stdin allows piping from another local process for scripted
+    enrollment.
     """
     if args.stdin:
-        if sys.stdin.isatty():
+        if _stdin_is_interactive():
             raise CredentialError(
                 "--stdin given but stdin is a terminal; pipe the secret in "
                 "or drop --stdin for the hidden prompt")
@@ -292,7 +324,7 @@ def _read_secret_locally(args) -> Secret:
         # prepend one when piping) so it never becomes part of the secret.
         value = sys.stdin.buffer.readline().decode("utf-8-sig", errors="replace").strip()
     else:
-        if not sys.stdin.isatty():
+        if not _stdin_is_interactive():
             raise CredentialError(
                 "enroll requires an interactive terminal so the secret is "
                 "typed into a hidden prompt, not passed through an "

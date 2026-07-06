@@ -133,9 +133,12 @@ In-process use: `get_provider().get(service, account) -> Secret` →
 `env` stays gated until green-lit. Selection: arg > `HUB_CRED_PROVIDER` > null.
 
 **Enrollment is local-terminal-only by construction.** `enroll` demands an
-interactive TTY and reads the secret via hidden getpass prompt; run through
-an orchestration channel (non-TTY stdin) it refuses and prints the command
-to run at the PC instead. Secrets therefore never appear in chat logs, argv,
+interactive terminal and reads the secret via hidden getpass prompt; run
+through an orchestration channel (non-TTY stdin) it refuses and prints the
+command to run at the PC instead. The terminal check is hardened for Windows,
+where `isatty()` wrongly reports the NUL device as a TTY — a `GetConsoleMode`
+probe confirms a real console so the gate refuses (never hangs on getpass)
+when driven headless. Secrets therefore never appear in chat logs, argv,
 process lists, or shell history. `--stdin` permits piping from another local
 process for scripted enrollment (BOM-stripped so a shell-injected byte-order
 mark never becomes part of the secret). `--expect-format` validates the

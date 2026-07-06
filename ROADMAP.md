@@ -16,7 +16,7 @@ A single runner (`python -m tests.run`) executes everything and emits a summary.
 - [x] test_envelope.py — cross-module: valid ASCII envelope + exit code mirrors `ok` (10 modules)
 - [ ] test_system.py — telemetry shape, percent normalization, pid-0 exclusion
 - [x] test_files.py — containment allowlist, `..`/outside escape, refused dot-dirs, key-material refusal, binary + bounded/truncated read (19 tests)
-- [ ] test_credentials.py — Secret wrapper seals all 8 channels, existence-only CLI
+- [x] test_credentials.py — Secret wrapper per-channel, provider registry, format validation, fail-closed enroll (26 tests). FOUND+FIXED a real bug: Windows `isatty()` returns True for NUL, so the non-TTY enroll gate hung on getpass instead of refusing — hardened with a GetConsoleMode probe.
 - [ ] test_apps.py — ambiguity errors, guarded kill fail-closed (mock-based)
 - [ ] test_friday.py — dry-run planning, protect-layer logic, exit codes
 
@@ -56,3 +56,9 @@ Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
 - 2026-07-05: test_files (19) — containment boundary. Confirmed deny-dir logic
   by accident: a temp-rooted sandbox is blocked because system temp is under
   AppData (a refused dir); sandbox relocated under home. Suite at 45 green.
+- 2026-07-05: test_credentials (26). Tests surfaced a real fail-closed bug:
+  Windows `sys.stdin.isatty()` reports True for the NUL device, so `enroll`
+  via an orchestration channel hit getpass and HUNG (30s) instead of refusing.
+  Hardened `_stdin_is_interactive()` with a GetConsoleMode probe (fails for
+  NUL/redirected, succeeds for a real console). Enroll now refuses in ~0.5s.
+  Also hardened tests/_helpers run_cli to use DEVNULL stdin. Suite at 71 green.
