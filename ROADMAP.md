@@ -45,7 +45,7 @@ remaining items deferred with rationale (low value / need pycaw).**
 
 ## Phase 4 — Hardening
 - [ ] envelope contract fuzz (control chars, unicode, oversized fields)
-- [ ] kill-switch coverage audit across every new module
+- [x] kill-switch coverage audit — one test asserts EVERY guarded module CLI (13) refuses (ok:false + "kill-switch", exit 1) when engaged; documents 2 exemptions (safety kill-status answers; friday status reports-not-obeys). (test_killswitch.py, 4 tests)
 - [ ] deadline/loop-ceiling audit
 - [ ] README kept in lockstep with every module added
 
@@ -215,3 +215,7 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   admin; status read-only. Tests never touch Task Scheduler. 211 green. Only the
   real admin registration (`watch install --confirm`) remains, and that's
   NEEDS-YOU. Next: Phase 4 hardening polish.
+- 2026-07-06: Phase 4 — kill-switch coverage audit (test_killswitch.py). Probed
+  all modules live first (all refuse; no gaps found), then locked it in: 13
+  guarded CLIs must refuse when engaged; exemptions documented (safety kill-
+  status, friday status). 215 green. Next: envelope fuzz, deadline/loop audit.
