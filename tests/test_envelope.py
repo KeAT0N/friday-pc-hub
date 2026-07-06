@@ -35,6 +35,7 @@ SAFE_INVOCATIONS = [
     ("files", ["roots"]),
     ("power", ["status"]),
     ("net", ["adapters"]),
+    ("clipboard", ["get"]),
 ]
 
 

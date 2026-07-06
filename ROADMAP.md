@@ -26,7 +26,7 @@ Each follows the extension rules (envelope, assert_alive, bounded, fail-closed).
 - [ ] window.py — enumerate/move/resize/snap windows, virtual-desktop switch, layout presets
 - [ ] audio.py — master volume/mute, default device switch, per-app volume
 - [x] power.py — status (RO) + lock/monitor-off/sleep/hibernate/shutdown/restart/cancel, all confirm-gated dry-run-by-default, ctypes-only, bounded (7 tests)
-- [ ] clipboard.py — read/write clipboard, bounded, key-material sniffing
+- [x] clipboard.py — get (read-only, secret-withholding heuristic + --reveal, length-capped) + confirm-gated set/clear, bounded clipboard opens (12 tests)
 - [ ] media.py — playback control via media keys (play/pause/next/prev/vol)
 - [x] net.py — status (hostname/IP/online), adapters (up/speed/IPv4/6/MAC), wifi (netsh), bounded ping w/ host-injection guard + anchored parse (10 tests). Found+fixed a ping-parse bug (bytes=/TTL= misread as counts).
 - [ ] screen.py — screenshot to staged file (goes through files.py staging)
@@ -149,3 +149,7 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   dependency-free, host-injection guard on ping. Found+fixed a real parse bug:
   the loose regex read `bytes=32`/`TTL=128` as sent/received counts; re-anchored
   on the `Packets:` line + added a locale-independent regression test. 126 green.
+- 2026-07-05: Phase 2 module 3 — clipboard.py. get read-only with a
+  secret-withholding heuristic (never dumps a copied password to chat without
+  --reveal); set/clear confirm-gated. Tests mock the io helpers so the live
+  clipboard is never clobbered. 138 green.

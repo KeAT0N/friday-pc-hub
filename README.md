@@ -293,6 +293,22 @@ without hanging, shutdown.exe carries a timeout, and `shutdown`/`restart`
 default to a 60s delay so `cancel` has a window. Orchestration rule: an actual
 `--confirm` power action is confirmed with the user in chat first.
 
+### hub/clipboard.py — clipboard access (secret-aware)
+
+```
+python hub\clipboard.py get   [--max-chars N] [--reveal]
+python hub\clipboard.py set   --text T [--confirm]
+python hub\clipboard.py clear [--confirm]
+```
+
+Notes: `get` is read-only and length-capped (honest `truncated`); `set`/`clear`
+clobber the clipboard so they are confirm-gated (dry-run preview by default).
+Secret hygiene: `get` runs a conservative heuristic (PEM key blocks, secret
+keywords, or a single opaque high-entropy token) and WITHHOLDS matching content
+(`content:null`, `looks_sensitive:true`) unless `--reveal` — so a hub read never
+dumps a copied password into chat. Clipboard opens are bounded (deadline+retry)
+so a momentarily-locked clipboard can't hang the hub. Uses win32clipboard.
+
 ### hub/files.py — contained file access
 
 ```
