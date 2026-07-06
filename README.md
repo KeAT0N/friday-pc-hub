@@ -204,8 +204,17 @@ python -m hub.friday boot    --profile dev  [--no-mail] [--dry-run]
 python -m hub.friday trigger sit-down       [--dry-run]
 python -m hub.friday trigger chill          [--dry-run]
 python -m hub.friday trigger optimize       [--dry-run]
+python -m hub.friday trigger goodnight      [--dry-run]   wind down + lock
 python -m hub.friday status                 [--no-mail]   read-only health dashboard
 ```
+
+The **goodnight** scene safe-wipes windows (graceful-only, dev env protected),
+turns lights + RGB off, then locks the session. Its final power-down runs
+through a scene `power` step that accepts only REVERSIBLE verbs
+(`lock`/`monitor-off`/`sleep`/`hibernate`) — shutdown/restart are refused in a
+scene because friday auto-passes `--confirm`, so a data-only profile must never
+be able to silently confirm an irreversible power-off. `--dry-run` plans every
+step (including the lock) and executes nothing.
 
 The **status** scene is a read-only, one-shot dashboard: it composes the
 read-only module CLIs (safety kill-status + system snapshot + net status +

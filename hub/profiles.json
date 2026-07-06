@@ -31,5 +31,12 @@
     "report": {"top": 8},
     "wipe": {"protect": []},
     "kill": ["Discord.exe", "EpicGamesLauncher.exe", "Steam.exe"]
+  },
+  "goodnight": {
+    "requires": [],
+    "rgb": "off",
+    "wipe": {"protect": []},
+    "smart_home": {"wemo": {"device": "Room Light", "action": "off"}},
+    "power": "lock"
   }
 }

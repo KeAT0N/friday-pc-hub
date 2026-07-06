@@ -399,6 +399,32 @@ def apply_rgb(rgb, dry_run: bool) -> dict | None:
         return {"rgb": {**base, "ok": False, "error": f"{type(e).__name__}: {e}"}}
 
 
+# ---------------------------------------------------------------- power step
+
+# A scene may power down the session, but ONLY via reversible verbs. shutdown/
+# restart are deliberately excluded: friday auto-passes --confirm (it is the
+# trusted orchestrator), so allowing them here would let a mere profile edit
+# silently confirm an irreversible shutdown. Those stay a direct power.py call.
+SCENE_POWER_VERBS = {"lock", "monitor-off", "sleep", "hibernate"}
+
+
+def run_power(verb: str | None, dry_run: bool) -> dict | None:
+    """Run a reversible power.py verb as the final scene step. dry-run previews
+    (no --confirm); a live run passes --confirm since friday is trusted."""
+    if not verb:
+        return None
+    if verb not in SCENE_POWER_VERBS:
+        return {"verb": verb, "ok": False, "error":
+                f"{verb!r} not allowed in a scene; reversible only "
+                f"({sorted(SCENE_POWER_VERBS)})"}
+    r = run_module("power", [verb] + ([] if dry_run else ["--confirm"]))
+    if dry_run:
+        return {"verb": verb, "ok": None, "dry_run": True,
+                "plan": (r.get("data") or {}).get("plan")}
+    return {"verb": verb, "ok": bool(r.get("ok")),
+            "error": None if r.get("ok") else r.get("error")}
+
+
 def narrate_rgb(rgb_res: dict | None, dry_run: bool) -> None:
     if rgb_res is None:
         return
@@ -473,19 +499,27 @@ def trigger(args) -> None:
     rgb = apply_rgb(profile.get("rgb"), args.dry_run)
     narrate_rgb(rgb, args.dry_run)
 
+    # power-down runs LAST (lighting/wipe first, then lock the session)
+    power = run_power(profile.get("power"), args.dry_run)
+    if power is not None:
+        state = "PLAN" if args.dry_run else (
+            "OK" if power["ok"] else f"FAIL ({power.get('error')})")
+        log(f"power: {power['verb']} -> {state}")
+
     elapsed = round(time.monotonic() - t0, 1)
     degraded = any(l.get("ok") is False for l in launches) \
         or (wipe is not None and not wipe.get("ok")) \
         or (kills is not None and any(k.get("ok") is False for k in kills)) \
         or (sh is not None and sh["wemo"].get("ok") is False) \
-        or (rgb is not None and rgb["rgb"].get("ok") is False)
+        or (rgb is not None and rgb["rgb"].get("ok") is False) \
+        or (power is not None and power.get("ok") is False)
     log(f"triggered '{args.profile}' in {elapsed}s" + (" (DEGRADED)" if degraded else ""))
     emit(not degraded, code=2 if degraded else 0,
          error="degraded: one or more steps failed" if degraded else None,
          data={"profile": args.profile, "preflight": vault or None,
                "report": report, "wipe": wipe, "kills": kills,
                "launches": launches, "smart_home": sh, "rgb": rgb,
-               "elapsed_sec": elapsed, "dry_run": args.dry_run})
+               "power": power, "elapsed_sec": elapsed, "dry_run": args.dry_run})
 
 
 # ---------------------------------------------------------------- status scene

@@ -37,7 +37,7 @@ clipboard, media, window, screen (+ audio covered by media).**
 ## Phase 3 — Depth: richer FRIDAY orchestration
 - [x] `status` scene — read-only health dashboard: kill-switch state + system snapshot + net status + mail counts + non-aborting vault audit, one envelope, exit 0/2 (5 tests). Reports the kill-switch instead of obeying it.
 - [ ] scene composition: new profiles leveraging window/audio/power modules
-- [ ] `goodnight` scene — wipe, lock, monitors off, lights off
+- [x] `goodnight` scene — safe-wipe + lights off + RGB off + lock, via a data profile + new reversible-only scene `power` step (shutdown/restart refused in scenes); fully dry-run-able (5 tests)
 - [ ] per-scene RGB + audio ducking integration
 
 ## Phase 4 — Hardening
@@ -178,3 +178,8 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   safety/system/net/mail/credentials via run_module; non-aborting vault audit;
   reports (not obeys) the kill-switch. Live run: cpu/mem/disk/online/vault all
   read in ~5s. Composition tested with run_module mocked + a live smoke. 171 green.
+- 2026-07-05: Phase 3 scene 2 — friday `goodnight`. Added a reversible-only
+  scene `power` step to trigger() (lock/monitor-off/sleep/hibernate; shutdown/
+  restart refused so a data profile can't silently auto-confirm an irreversible
+  power-off). goodnight profile = wipe + lights off + rgb off + lock. Verified
+  dry-run plans the lock without acting. 176 green.

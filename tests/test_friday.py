@@ -177,6 +177,41 @@ class TestRunModule(unittest.TestCase):
         self.assertIn("error", r)
 
 
+class TestRunPower(unittest.TestCase):
+    def test_none_verb_returns_none(self):
+        self.assertIsNone(friday.run_power(None, dry_run=True))
+
+    def test_disallowed_verb_refused_without_calling(self):
+        with mock.patch.object(friday, "run_module",
+                               side_effect=AssertionError("must not run")):
+            out = friday.run_power("shutdown", dry_run=True)
+        self.assertFalse(out["ok"])
+        self.assertIn("not allowed", out["error"])
+
+    def test_dry_run_omits_confirm(self):
+        calls = []
+
+        def fake(m, argv, timeout=friday.MODULE_TIMEOUT):
+            calls.append(argv)
+            return {"ok": True, "data": {"dry_run": True, "plan": "lock..."}}
+        with mock.patch.object(friday, "run_module", side_effect=fake):
+            out = friday.run_power("lock", dry_run=True)
+        self.assertEqual(calls[0], ["lock"])       # no --confirm
+        self.assertIsNone(out["ok"])
+        self.assertTrue(out["dry_run"])
+
+    def test_live_passes_confirm(self):
+        calls = []
+
+        def fake(m, argv, timeout=friday.MODULE_TIMEOUT):
+            calls.append(argv)
+            return {"ok": True, "data": {"confirmed": True}}
+        with mock.patch.object(friday, "run_module", side_effect=fake):
+            out = friday.run_power("lock", dry_run=False)
+        self.assertIn("--confirm", calls[0])
+        self.assertTrue(out["ok"])
+
+
 class TestStatusScene(unittest.TestCase):
     def _status(self, no_mail=True, overrides=None):
         store = []
@@ -240,6 +275,15 @@ class TestCLIExitCodes(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(env["ok"])
         self.assertTrue(env["data"]["dry_run"])
+
+    def test_goodnight_dry_run_plans_lock_without_acting(self):
+        # dry-run must PLAN the lock, never execute it (would lock the machine).
+        env, code = run_cli("friday", "trigger", "goodnight", "--dry-run",
+                            timeout=30)
+        self.assertEqual(code, 0)
+        self.assertTrue(env["data"]["dry_run"])
+        self.assertEqual(env["data"]["power"]["verb"], "lock")
+        self.assertIsNone(env["data"]["power"]["ok"])  # planned, not executed
 
     def test_unknown_profile_aborts_exit1(self):
         env, code = run_cli("friday", "trigger", "no-such-profile", "--dry-run")
