@@ -13,7 +13,7 @@ A single runner (`python -m tests.run`) executes everything and emits a summary.
 
 - [x] tests/ scaffold + `tests.run` discovery runner
 - [x] test_safety.py — kill-switch, Deadline, @deadline, @retry, wait_until (23 tests, green)
-- [ ] test_envelope.py — every module's stdout is a valid ASCII envelope, exit code mirrors `ok`
+- [x] test_envelope.py — cross-module: valid ASCII envelope + exit code mirrors `ok` (10 modules)
 - [ ] test_system.py — telemetry shape, percent normalization, pid-0 exclusion
 - [ ] test_files.py — containment allowlist, symlink/`..` escape, key-material refusal, bounded read
 - [ ] test_credentials.py — Secret wrapper seals all 8 channels, existence-only CLI
