@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -269,6 +270,105 @@ class TestStatusScene(unittest.TestCase):
         self.assertTrue(out["data"]["kill_switch"]["engaged"])
 
 
+class TestRespond(unittest.TestCase):
+    """The 5b tripwire: threshold, cooldown, kill-switch, dry-run — run_module
+    and the cooldown file mocked/redirected so nothing real is touched."""
+
+    SW = {"failed_logon_count": 10, "window_sec": 3600, "cooldown_sec": 300,
+          "defender_any": True}
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp(prefix="hubresp_")
+        self.cooldown = Path(self._tmp) / "cool"
+        self._prev = {k: os.environ.get(k)
+                      for k in ("HUB_RESPOND_COOLDOWN_FILE", "HUB_KILL_FILE")}
+        os.environ["HUB_RESPOND_COOLDOWN_FILE"] = str(self.cooldown)
+        os.environ.pop("HUB_KILL_FILE", None)
+
+    def tearDown(self):
+        for k, v in self._prev.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _respond(self, intruders, dry_run=False):
+        store, calls = [], []
+
+        def fake_emit(ok, data=None, error=None, code=0):
+            store.append({"ok": ok, "data": data, "error": error, "code": code})
+            raise _Emitted
+
+        def fake_run(module, argv, timeout=friday.MODULE_TIMEOUT):
+            calls.append((module, argv))
+            if module == "security":
+                return {"ok": True, "data": intruders}
+            if module == "notify":
+                return {"ok": True, "data": {}}
+            return {"ok": False, "error": "unexpected"}
+
+        with mock.patch.object(friday, "emit", fake_emit), \
+                mock.patch.object(friday, "run_module", side_effect=fake_run), \
+                mock.patch.object(friday, "load_security_watch", return_value=self.SW):
+            try:
+                friday.respond(argparse.Namespace(action="respond", dry_run=dry_run))
+            except _Emitted:
+                pass
+        return store[0], [m for m, _ in calls]
+
+    def test_triggered_by_failed_logons_alerts_and_arms_cooldown(self):
+        intr = {"failed_logons": {"available": True, "count": 15},
+                "defender_detections": {"available": True, "count": 0}}
+        out, mods = self._respond(intr)
+        self.assertTrue(out["data"]["triggered"])
+        self.assertTrue(out["data"]["notified"])
+        self.assertIn("notify", mods)
+        self.assertTrue(self.cooldown.exists())   # cooldown armed
+
+    def test_below_threshold_no_alert(self):
+        intr = {"failed_logons": {"available": True, "count": 3},
+                "defender_detections": {"available": True, "count": 0}}
+        out, mods = self._respond(intr)
+        self.assertFalse(out["data"]["triggered"])
+        self.assertNotIn("notify", mods)
+        self.assertFalse(self.cooldown.exists())
+
+    def test_defender_detection_triggers(self):
+        intr = {"failed_logons": {"available": True, "count": 0},
+                "defender_detections": {"available": True, "count": 2}}
+        out, mods = self._respond(intr)
+        self.assertTrue(out["data"]["triggered"])
+        self.assertIn("notify", mods)
+
+    def test_cooldown_suppresses_and_skips_scan(self):
+        self.cooldown.write_text(str(time.time()))   # fresh marker
+        intr = {"failed_logons": {"available": True, "count": 99}}
+        out, mods = self._respond(intr)
+        self.assertTrue(out["data"]["cooling_down"])
+        self.assertFalse(out["data"]["triggered"])
+        self.assertNotIn("security", mods)           # never even scanned
+
+    def test_dry_run_evaluates_but_no_toast_or_marker(self):
+        intr = {"failed_logons": {"available": True, "count": 15},
+                "defender_detections": {"available": True, "count": 0}}
+        out, mods = self._respond(intr, dry_run=True)
+        self.assertTrue(out["data"]["triggered"])    # would alert
+        self.assertFalse(out["data"]["notified"])
+        self.assertNotIn("notify", mods)
+        self.assertFalse(self.cooldown.exists())     # no marker written
+
+    def test_kill_switch_refuses_no_scan(self):
+        kill = Path(self._tmp) / "kill"
+        kill.write_text("{}", encoding="utf-8")
+        os.environ["HUB_KILL_FILE"] = str(kill)
+        out, mods = self._respond({"failed_logons": {"available": True, "count": 99}})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["code"], 1)
+        self.assertNotIn("security", mods)           # gated before any read
+
+
 class TestCLIExitCodes(unittest.TestCase):
     def test_dry_run_trigger_clean_exit0(self):
         env, code = run_cli("friday", "trigger", "chill", "--dry-run")
@@ -290,6 +390,14 @@ class TestCLIExitCodes(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertFalse(env["ok"])
         self.assertIn("unknown profile", env["error"])
+
+    def test_respond_dry_run_live(self):
+        # reads real intruder signals; must be dry-run safe (no toast/marker).
+        env, code = run_cli("friday", "respond", "--dry-run", timeout=45)
+        self.assertIn(code, (0, 2))
+        self.assertTrue(env["data"]["dry_run"])
+        for key in ("triggered", "signals", "thresholds"):
+            self.assertIn(key, env["data"])
 
     def test_status_scene_live(self):
         # read-only dashboard against the live machine; exit 0 (or 2 if a read

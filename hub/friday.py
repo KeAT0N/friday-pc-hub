@@ -584,6 +584,100 @@ def status(args) -> None:
                "mail": mail, "vault": vault, "elapsed_sec": elapsed})
 
 
+# ---------------------------------------------------------------- respond (5b tripwire)
+# The stateless handler the OS launches on a security event. Read-only + fail-
+# soft + bounded: it never mutates anything, it only reads intruder signals and
+# fires a desktop toast when a DATA-defined threshold is crossed. Kill-switch
+# gates it (disarmed hub => no autonomous action); a cooldown marker debounces
+# an event storm; the threshold lives in profiles.json security_watch (data).
+
+SECURITY_WATCH_DEFAULTS = {"failed_logon_count": 10, "window_sec": 3600,
+                           "cooldown_sec": 300, "defender_any": True}
+DEFAULT_COOLDOWN_FILE = Path(__file__).resolve().parent / ".respond_cooldown"
+
+
+def load_security_watch() -> dict:
+    try:
+        cfg = json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return dict(SECURITY_WATCH_DEFAULTS)
+    return {**SECURITY_WATCH_DEFAULTS, **(cfg.get("security_watch") or {})}
+
+
+def _cooldown_path() -> Path:
+    return Path(os.environ.get("HUB_RESPOND_COOLDOWN_FILE", DEFAULT_COOLDOWN_FILE))
+
+
+def _cooldown_remaining(cooldown_sec: float) -> float:
+    f = _cooldown_path()
+    if not f.exists():
+        return 0.0
+    try:
+        ts = float(f.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return 0.0  # unreadable marker => treat as expired (fail toward acting)
+    return max(0.0, cooldown_sec - (time.time() - ts))
+
+
+def _arm_cooldown() -> None:
+    try:
+        _cooldown_path().write_text(str(time.time()), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def respond(args) -> None:
+    t0 = time.monotonic()
+    gate("respond")                     # kill-switch: disarmed hub acts on nothing
+    sw = load_security_watch()
+
+    if not args.dry_run:
+        rem = _cooldown_remaining(sw["cooldown_sec"])
+        if rem > 0:                     # anti-storm: recently alerted, stay quiet
+            log(f"cooling down ({int(rem)}s left) - skipping scan")
+            emit(True, code=0, data={"triggered": False, "cooling_down": True,
+                                     "cooldown_remaining_sec": int(rem),
+                                     "dry_run": False})
+
+    hours = max(1, (sw["window_sec"] + 3599) // 3600)   # window_sec -> ceil hours
+    intr = run_module("security", ["intruders", "--hours", str(hours), "--max", "50"])
+    idata = intr.get("data") or {}
+    fl = idata.get("failed_logons") or {}
+    dd = idata.get("defender_detections") or {}
+
+    reasons = []
+    fl_count = fl.get("count") if fl.get("available") else None
+    if isinstance(fl_count, int) and fl_count >= sw["failed_logon_count"]:
+        reasons.append(f"{fl_count} failed logins in ~{hours}h "
+                       f"(threshold {sw['failed_logon_count']})")
+    dd_count = dd.get("count") if dd.get("available") else None
+    if sw["defender_any"] and isinstance(dd_count, int) and dd_count > 0:
+        reasons.append(f"{dd_count} Defender threat detection(s)")
+    triggered = bool(reasons)
+    log("signals: " + (f"TRIGGERED - {'; '.join(reasons)}" if triggered else "clear"))
+
+    notified = False
+    if triggered and not args.dry_run:
+        nr = run_module("notify", ["send", "--title", "Security alert (FRIDAY)",
+                                   "--message", "; ".join(reasons)[:480],
+                                   "--duration", "long"])
+        notified = bool(nr.get("ok"))
+        _arm_cooldown()
+        log(f"ALERT -> notify {'ok' if notified else 'FAILED'}; "
+            f"cooldown armed {sw['cooldown_sec']}s")
+    elif triggered and args.dry_run:
+        log("DRY-RUN: would alert + arm cooldown (no toast, no marker written)")
+
+    degraded = not intr.get("ok")
+    emit(not degraded, code=2 if degraded else 0,
+         error="degraded: could not read intruder signals" if degraded else None,
+         data={"triggered": triggered, "reasons": reasons, "notified": notified,
+               "cooling_down": False, "dry_run": args.dry_run,
+               "signals": {"failed_logons": fl, "defender_detections": dd},
+               "thresholds": sw, "window_hours": hours,
+               "elapsed_sec": round(time.monotonic() - t0, 1)})
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="hub.friday", description=__doc__)
     sub = p.add_subparsers(dest="action", required=True)
@@ -600,9 +694,13 @@ def main() -> None:
     st = sub.add_parser("status")
     st.add_argument("--no-mail", action="store_true")
 
+    rs = sub.add_parser("respond")
+    rs.add_argument("--dry-run", action="store_true")
+
     args = p.parse_args()
     try:
-        {"boot": boot, "trigger": trigger, "status": status}[args.action](args)
+        {"boot": boot, "trigger": trigger, "status": status,
+         "respond": respond}[args.action](args)
     except KillSwitchEngaged as e:
         emit(False, error=str(e), code=1)
     except Exception as e:

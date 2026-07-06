@@ -38,5 +38,11 @@
     "wipe": {"protect": []},
     "smart_home": {"wemo": {"device": "Room Light", "action": "off"}},
     "power": "lock"
+  },
+  "security_watch": {
+    "failed_logon_count": 10,
+    "window_sec": 3600,
+    "cooldown_sec": 300,
+    "defender_any": true
   }
 }

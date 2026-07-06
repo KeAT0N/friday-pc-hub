@@ -79,15 +79,15 @@ Security-log event and launches our short-lived handler — so there is no
 long-lived listener process to secure (stays on the hub's no-daemon
 philosophy). Depends on the security.py read-only scanner above (built first).
 
-- [ ] profiles.json `security_watch` DATA block (no eval/DSL): `failed_logon_count`,
-      `window_sec`, `cooldown_sec`, `defender_any` (bool). Threshold is data the
-      brain/OS compares — no predicate logic in the hands.
-- [ ] friday.py `respond` — the tripwire handler the OS launches on an event.
-      Pipeline (fail-soft, fully @deadline-bounded): kill-switch gate → cooldown
-      marker check (skip if fired < cooldown_sec ago; anti-storm) → bounded
-      read-only scan (security.py intruders/audit) → compare counts to
-      `security_watch` threshold → if crossed, emergency notify.py toast
-      (existing envelope). Never mutates; degraded envelope on any error.
+- [x] profiles.json `security_watch` DATA block: failed_logon_count, window_sec,
+      cooldown_sec, defender_any. Pure data; respond compares it — no DSL/eval.
+- [x] friday.py `respond` — the tripwire handler. Pipeline (fail-soft, bounded,
+      NEVER mutates): kill-switch gate → cooldown marker (hub/.respond_cooldown,
+      gitignored; anti-storm) → read-only `security intruders` → compare to
+      security_watch threshold → emergency notify toast if crossed. --dry-run
+      evaluates + reports, writes no marker / sends no toast. (7 tests: threshold,
+      defender-trigger, cooldown-skips-scan, kill-switch-refuses, dry-run-no-fx,
+      live dry-run smoke.)
 - [ ] friday.py `watch install|status|uninstall` — register/inspect/remove the
       Scheduled Task. Trigger = Security EventID 4625 (failed logon) + Defender
       Operational 1116/1117 (malware detected/acted); action = `python -m
@@ -205,3 +205,8 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   NO protection-weakening verb exists by construction; scan detached so a full
   scan can't block. Gating proven with effects mocked (no real cmdlet run) +
   live admin-refusal. 198 green. Next: Phase 5b event-driven tripwire.
+- 2026-07-06: Phase 5b CORE — friday `respond` tripwire + security_watch data
+  block. Kill-switch-gated, cooldown-debounced (gitignored marker), reads
+  security intruders, alerts via notify when the DATA threshold is crossed;
+  never mutates; fully dry-run-able. 205 green. Remaining 5b: watch install/
+  status/uninstall (registers the Scheduled Task event trigger — admin/NEEDS-YOU).

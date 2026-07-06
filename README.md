@@ -206,7 +206,25 @@ python -m hub.friday trigger chill          [--dry-run]
 python -m hub.friday trigger optimize       [--dry-run]
 python -m hub.friday trigger goodnight      [--dry-run]   wind down + lock
 python -m hub.friday status                 [--no-mail]   read-only health dashboard
+python -m hub.friday respond                [--dry-run]   security tripwire handler
 ```
+
+The **respond** handler is the 5b autonomous tripwire — the stateless process
+the OS launches on a Windows security event (see below). Fail-soft, bounded, and
+NEVER mutates: kill-switch gate (a disarmed hub acts on nothing) → cooldown
+marker (`hub/.respond_cooldown`, gitignored; skips if it alerted < `cooldown_sec`
+ago — anti-storm) → read-only `security intruders` → compare to the
+`security_watch` threshold → emergency `notify` toast if crossed. The threshold
+is DATA in `profiles.json`:
+
+```json
+"security_watch": { "failed_logon_count": 10, "window_sec": 3600,
+                    "cooldown_sec": 300, "defender_any": true }
+```
+
+`--dry-run` evaluates and reports what it *would* alert on, writing no marker and
+sending no toast. Registering the OS event-trigger that launches `respond`
+(`watch install`) needs admin and is the next step (NEEDS-YOU).
 
 The **goodnight** scene safe-wipes windows (graceful-only, dev env protected),
 turns lights + RGB off, then locks the session. Its final power-down runs
