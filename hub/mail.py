@@ -42,21 +42,27 @@ import imaplib
 import smtplib
 
 try:  # package import or direct script run
+    from hub import localcfg
     from hub.credentials import get_provider, CredentialError
     from hub.safety import KillSwitchEngaged, assert_alive
 except ImportError:
+    import localcfg
     from credentials import get_provider, CredentialError
     from safety import KillSwitchEngaged, assert_alive
 
-# Per-provider defaults. login_user / cred_account are overridable per call
-# via CLI (--user, --cred-account, --cred-service) or env (HUB_MAIL_*).
+# Per-provider defaults. Personal values (login user, keyring account) come from
+# the gitignored local config (hub/.hub_local.json) or env (HUB_MAIL_*), so the
+# committed code carries only placeholders. Overridable per call via CLI too.
+_LC = localcfg.load()
+_ACCT = _LC.get("vault_account", "default")
+_MAIL = _LC.get("mail", {})
 PROVIDERS = {
     "icloud": {"imap": "imap.mail.me.com", "smtp": "smtp.mail.me.com",
-               "smtp_port": 587, "user": "keatondavey@icloud.com",
-               "cred_service": "icloud_mail", "cred_account": "keatondavey"},
+               "smtp_port": 587, "user": _MAIL.get("icloud_user", "you@icloud.com"),
+               "cred_service": "icloud_mail", "cred_account": _ACCT},
     "gmail":  {"imap": "imap.gmail.com", "smtp": "smtp.gmail.com",
-               "smtp_port": 587, "user": "cooldavey1256@gmail.com",
-               "cred_service": "gmail", "cred_account": "keatondavey"},
+               "smtp_port": 587, "user": _MAIL.get("gmail_user", "you@gmail.com"),
+               "cred_service": "gmail", "cred_account": _ACCT},
 }
 
 

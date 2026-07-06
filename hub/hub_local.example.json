@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy to hub/.hub_local.json (gitignored) and fill in your values. Keeps personal identifiers out of the repo. Falls back to placeholders if absent.",
+  "vault_account": "your-keyring-account",
+  "mail": {
+    "icloud_user": "you@icloud.com",
+    "gmail_user": "you@gmail.com"
+  }
+}

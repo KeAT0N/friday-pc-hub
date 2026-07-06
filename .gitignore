@@ -4,3 +4,4 @@ hub/KILLSWITCH
 hub/KILLSWITCH.selftest*
 hub/.respond_cooldown
 hub/.push.json
+hub/.hub_local.json

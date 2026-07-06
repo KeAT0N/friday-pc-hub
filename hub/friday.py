@@ -39,13 +39,18 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 try:  # package import or direct script run
+    from hub import localcfg
     from hub.safety import KillSwitchEngaged, assert_alive
 except ImportError:
+    import localcfg
     from safety import KillSwitchEngaged, assert_alive
 
 REPO = Path(__file__).resolve().parent.parent
 PROFILES_PATH = Path(__file__).resolve().parent / "profiles.json"
-VAULT_ACCOUNT = "keatondavey"
+# Personal keyring account from the gitignored local config (env override wins);
+# generic default so the public repo carries no identity.
+VAULT_ACCOUNT = os.environ.get("HUB_VAULT_ACCOUNT") or \
+    localcfg.get("vault_account", "default")
 MAIL_PROVIDERS = ("gmail", "icloud")
 MODULE_TIMEOUT = 45.0
 CLOSE_TIMEOUT = 6

@@ -211,9 +211,11 @@ python hub\mail.py read      [--provider P] --uid U [--mailbox M] [--max-chars N
 python hub\mail.py send      [--provider P] --to A --subject S --body B [--from F] [--confirm-send]
 ```
 
-Notes: per-provider host/user/cred mapping lives in `PROVIDERS`
-(icloud→`icloud_mail`, gmail→`gmail`; both account `keatondavey`), overridable
-per call via `--user`/`--cred-service`/`--cred-account` or `HUB_MAIL_*` env.
+Notes: per-provider host/user/cred mapping lives in `PROVIDERS`; the login user
+and keyring account come from the gitignored local config
+(`hub/.hub_local.json`, see `hub_local.example.json`) so no identity is in the
+repo. Overridable per call via `--user`/`--cred-service`/`--cred-account` or
+`HUB_MAIL_*` env.
 Password pulled in-process from keyring, never printed.
 Reads open the mailbox **readonly** and fetch with BODY.PEEK — reading never
 marks mail as seen; limits are hard-capped (unread ≤25, body ≤20k chars) so a
@@ -501,7 +503,7 @@ or halt.
 ## Environment
 
 - Windows 11, Python 3.14 (`pip install -r requirements.txt`: psutil, pywin32)
-- Repo: `C:\Users\coold\Desktop\Claude`; modules run as scripts
+- Repo: this folder (any path); modules run as scripts
   (`python hub\apps.py …`) or package (`python -m hub.apps`) — imports handle
   both.
 - Runtime state that must never be committed: `hub/KILLSWITCH` (gitignored).

@@ -105,8 +105,8 @@ philosophy). Depends on the security.py read-only scanner above (built first).
 - [x] Remote access: Tailscale (already installed/logged in) + Windows OpenSSH
   server locked to the tailnet (firewall 100.64.0.0/10 only) + phone key in
   administrators_authorized_keys. `hub.cmd` shortcut on PATH → phone runs
-  `hub friday status` etc. over key-only SSH. Verified live from iPhone
-  (100.64.146.85).
+  `hub friday status` etc. over key-only SSH. Verified live from the phone over
+  the tailnet.
 - [x] push.py — phone push notifications via ntfy; topic secret kept out of git
   (gitignored hub/.push.json / env); friday `respond` now pushes (urgent) to the
   phone alongside the desktop toast. Fail-soft/inert until configured. (10 tests)

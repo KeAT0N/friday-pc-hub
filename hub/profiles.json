@@ -3,7 +3,7 @@
     "requires": ["github", "gmail", "icloud_mail"],
     "rgb": "green",
     "launch": [
-      {"type": "code", "path": "C:\\Users\\coold\\Desktop\\Claude"},
+      {"type": "code", "path": "."},
       {"type": "app", "target": "wt.exe"},
       {"type": "url", "target": "https://github.com/notifications"}
     ]
