@@ -174,28 +174,60 @@ def do_query(args) -> None:
     emit(True, "query", data=procs)
 
 
+# Friendly names so `open spotify` works without knowing the exe/URI. Unknown
+# names fall through to launching the name as-is (resolved on PATH / by the OS).
+APP_ALIASES = {
+    "spotify": "spotify:", "chrome": "chrome.exe", "edge": "msedge.exe",
+    "firefox": "firefox.exe", "discord": "discord.exe", "steam": "steam.exe",
+    "epic": "com.epicgames.launcher:", "notepad": "notepad.exe",
+    "calculator": "calc.exe", "calc": "calc.exe", "paint": "mspaint.exe",
+    "settings": "ms-settings:", "explorer": "explorer.exe",
+    "files": "explorer.exe", "terminal": "wt.exe", "code": "code",
+    "vscode": "code", "camera": "microsoft.windows.camera:",
+    "photos": "ms-photos:", "taskmgr": "taskmgr.exe",
+    "task-manager": "taskmgr.exe",
+}
+
+
+def _launch_target(target: str, extra_args=()) -> tuple[str | None, int | None]:
+    """Launch an exe (resolved on PATH) or a shell association (URI/alias).
+    Returns (resolved_exe_or_None, launched_pid_or_None). Raises ValueError if
+    args are given for a non-exe target; OSError on launch failure."""
+    exe = target if os.path.isfile(target) else shutil.which(target)
+    if exe:
+        proc = subprocess.Popen(
+            [exe, *extra_args],
+            creationflags=subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True)
+        return exe, proc.pid
+    if extra_args:
+        raise ValueError("--args requires a resolvable exe; "
+                         f"{target!r} resolves via shell association only")
+    os.startfile(target)   # URIs (ms-settings:), documents, app aliases
+    return None, None
+
+
+def do_open(args) -> None:
+    """Friendly open: `open spotify` / `open notepad`. Resolves a known alias,
+    else launches the given name directly."""
+    app = args.name
+    target = APP_ALIASES.get(app.strip().lower(), app)
+    try:
+        exe, launched_pid = _launch_target(target)
+    except (OSError, subprocess.SubprocessError) as e:
+        emit(False, "open", data={"app": app, "target": target},
+             error=f"could not open {app!r}: {type(e).__name__}: {e}")
+    emit(True, "open", data={"app": app, "target": target, "resolved": exe,
+                             "launched_pid": launched_pid})
+
+
 def do_launch(args) -> None:
     target = args.target
-    exe = target if os.path.isfile(target) else shutil.which(target)
-
     try:
-        if exe:
-            proc = subprocess.Popen(
-                [exe, *args.args],
-                creationflags=subprocess.DETACHED_PROCESS
-                | subprocess.CREATE_NEW_PROCESS_GROUP,
-                close_fds=True,
-            )
-            launched_pid = proc.pid
-        else:
-            # Shell association path: URIs (ms-settings:), documents, aliases.
-            # No args supported on this path by design.
-            if args.args:
-                emit(False, "launch",
-                     error="--args requires a resolvable exe; "
-                           f"{target!r} resolved via shell association only")
-            os.startfile(target)
-            launched_pid = None
+        exe, launched_pid = _launch_target(target, args.args)
+    except ValueError as e:
+        emit(False, "launch", error=str(e))
     except (OSError, subprocess.SubprocessError) as e:
         emit(False, "launch", error=f"{type(e).__name__}: {e}")
 
@@ -247,8 +279,32 @@ def do_focus(args) -> None:
          error=None if ok else "window did not reach foreground in time")
 
 
+def _close_by_name(name: str, timeout: float) -> None:
+    """Friendly close: gracefully close every visible window whose process
+    matches `name` (e.g. `close spotify`). Graceful WM_CLOSE only — a window
+    with unsaved changes survives and is reported kept, never force-killed."""
+    q = name.strip().lower()
+    matches = [w for w in enum_windows() if q in (w.process or "").lower()]
+    if not matches:
+        emit(False, "close", data={"name": name},
+             error=f"no open window for {name!r} "
+                   f"(a tray-only app may need `apps kill --name {q}.exe`)")
+    results = []
+    for w in matches:
+        win32gui.PostMessage(w.hwnd, win32con.WM_CLOSE, 0, 0)
+        gone = wait_until(lambda h=w.hwnd: not win32gui.IsWindow(h), timeout)
+        results.append({"hwnd": w.hwnd, "process": w.process,
+                        "title": w.title, "closed": bool(gone)})
+    ok = all(r["closed"] for r in results)
+    emit(ok, "close", data={"name": name, "windows": results, "forced": False},
+         error=None if ok else "one or more windows survived (unsaved changes?); "
+                               "nothing was force-killed")
+
+
 def do_close(args) -> None:
-    win = resolve_one_window(args)
+    if getattr(args, "name", None):          # friendly: `close <app-name>`
+        _close_by_name(args.name, args.timeout)
+    win = resolve_one_window(args)            # precise: --title/--pid/--hwnd
     pid = win.pid
 
     win32gui.PostMessage(win.hwnd, win32con.WM_CLOSE, 0, 0)
@@ -362,19 +418,24 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--name")
     q.add_argument("--title")
 
+    o = sub.add_parser("open")
+    o.add_argument("name", help="app to open, e.g. spotify | chrome | notepad")
+
     l = sub.add_parser("launch")
     l.add_argument("--target", required=True)
     l.add_argument("--args", nargs="*", default=[])
     l.add_argument("--wait-title")
     l.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
 
-    for name in ("focus", "close"):
-        s = sub.add_parser(name)
+    for verb in ("focus", "close"):
+        s = sub.add_parser(verb)
         s.add_argument("--title")
         s.add_argument("--pid", type=int)
         s.add_argument("--hwnd", type=int)
         s.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
-        if name == "close":
+        if verb == "close":
+            s.add_argument("name", nargs="?",
+                           help="app to close, e.g. spotify (or use --title/--hwnd)")
             s.add_argument("--force", action="store_true")
 
     k = sub.add_parser("kill")
@@ -387,11 +448,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    if args.action in ("focus", "close") and not any(
+    if args.action == "focus" and not any(
             v is not None for v in (args.title, args.pid, args.hwnd)):
-        emit(False, args.action, error="need --title, --pid, or --hwnd")
+        emit(False, "focus", error="need --title, --pid, or --hwnd")
+    if args.action == "close" and not getattr(args, "name", None) and not any(
+            v is not None for v in (args.title, args.pid, args.hwnd)):
+        emit(False, "close", error="need an app name, or --title/--pid/--hwnd")
     handler = {"list": do_list, "query": do_query, "launch": do_launch,
-               "focus": do_focus, "close": do_close, "kill": do_kill}[args.action]
+               "open": do_open, "focus": do_focus, "close": do_close,
+               "kill": do_kill}[args.action]
     try:
         assert_alive(f"apps.{args.action}")
         handler(args)

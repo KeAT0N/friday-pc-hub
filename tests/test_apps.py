@@ -160,6 +160,65 @@ class TestKillCLILive(unittest.TestCase):
         self.assertEqual(env["data"]["matched"], 0)
 
 
+class TestOpen(unittest.TestCase):
+    def _open(self, name):
+        store = []
+        with mock.patch.object(apps, "emit", capture_emit(store)), \
+                mock.patch.object(apps, "_launch_target",
+                                  return_value=("x.exe", 999)) as lt:
+            with self.assertRaises(_Emitted):
+                apps.do_open(argparse.Namespace(action="open", name=name))
+        return store[0], lt
+
+    def test_known_alias_resolved(self):
+        out, lt = self._open("spotify")
+        lt.assert_called_once_with("spotify:")   # friendly name -> URI
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["data"]["app"], "spotify")
+
+    def test_unknown_name_launched_as_is(self):
+        out, lt = self._open("somerandomapp")
+        lt.assert_called_once_with("somerandomapp")
+
+
+class TestCloseByName(unittest.TestCase):
+    def _close(self, name, windows, survived=False):
+        store = []
+        ns = argparse.Namespace(action="close", name=name, timeout=5.0,
+                                title=None, pid=None, hwnd=None, force=False)
+        with mock.patch.object(apps, "emit", capture_emit(store)), \
+                mock.patch.object(apps, "enum_windows", return_value=windows), \
+                mock.patch.object(apps.win32gui, "PostMessage"), \
+                mock.patch.object(apps, "wait_until", return_value=not survived):
+            try:
+                apps.do_close(ns)
+            except _Emitted:
+                pass
+        return store[0]
+
+    def test_closes_only_matching_process(self):
+        wins = [win(hwnd=1, process="Spotify.exe", title="Spotify"),
+                win(hwnd=2, process="chrome.exe", title="web")]
+        out = self._close("spotify", wins)
+        self.assertTrue(out["ok"])
+        procs = [w["process"] for w in out["data"]["windows"]]
+        self.assertEqual(procs, ["Spotify.exe"])       # chrome untouched
+        self.assertFalse(out["data"]["forced"])
+
+    def test_no_match_errors_with_hint(self):
+        out = self._close("nothere", [win(process="chrome.exe")])
+        self.assertFalse(out["ok"])
+        self.assertIn("no open window", out["error"])
+        self.assertIn("kill", out["error"])           # hint at the tray-app path
+
+    def test_survivor_reported_not_force_killed(self):
+        out = self._close("word", [win(hwnd=9, process="WINWORD.exe",
+                                        title="Doc *")], survived=True)
+        self.assertFalse(out["ok"])
+        self.assertFalse(out["data"]["windows"][0]["closed"])
+        self.assertIn("nothing was force-killed", out["error"])
+
+
 class TestKillSwitchRefusal(unittest.TestCase):
     def test_apps_refuses_when_kill_switch_engaged(self):
         with tempfile.TemporaryDirectory(prefix="hubtest_") as d:

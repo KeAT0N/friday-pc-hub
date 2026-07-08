@@ -122,6 +122,8 @@ All commands run from the repo root. Every response is the standard envelope.
 
 ```
 python hub\apps.py list
+python hub\apps.py open   <name>                 friendly: spotify | chrome | notepad ...
+python hub\apps.py close  <name>                 friendly: close matching windows by app name
 python hub\apps.py query  (--pid N | --name S | --title S)
 python hub\apps.py launch --target <exe|path|URI> [--args ...]
                           [--wait-title S] [--timeout N]
@@ -129,10 +131,15 @@ python hub\apps.py focus  (--title S | --pid N | --hwnd N) [--timeout N]
 python hub\apps.py close  (--title S | --pid N | --hwnd N) [--timeout N] [--force]
 ```
 
-Notes: launcher pid often ≠ app pid (UWP brokers) — `--wait-title` is the
-reliable readiness signal. `close` is graceful-first (`WM_CLOSE`); if the
-window survives (unsaved-changes dialog), it refuses unless rerun with
-`--force`. Ambiguous matches error out listing candidates with hwnds.
+Notes: `open <name>` resolves a small alias table (spotify→`spotify:`,
+settings→`ms-settings:`, notepad→`notepad.exe`, …) and falls back to launching
+the name as-is; `launch` is the precise form (exe/URI + args + `--wait-title`
+readiness). `close <name>` gracefully `WM_CLOSE`s every visible window whose
+process matches — never force-kills, so unsaved-work windows are reported kept
+(tray-only apps with no window fall to `kill --name`). The precise
+`close (--title|--pid|--hwnd)` closes one window and escalates only with
+`--force`. Launcher pid often ≠ app pid (UWP brokers); ambiguous precise
+matches error out listing candidate hwnds.
 
 ### hub/credentials.py — secret boundary (existence-only CLI)
 
