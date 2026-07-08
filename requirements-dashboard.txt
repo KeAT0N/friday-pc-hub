@@ -1,0 +1,6 @@
+# Extra dependencies for the always-open dashboard GUI (dashboard/).
+# Kept separate from requirements.txt so the headless hub CLIs stay
+# dependency-light; only install this if you're running the dashboard.
+PySide6>=6.7
+pywinpty>=2.0
+pyte>=0.8

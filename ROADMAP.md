@@ -110,6 +110,13 @@ philosophy). Depends on the security.py read-only scanner above (built first).
 - [x] push.py — phone push notifications via ntfy; topic secret kept out of git
   (gitignored hub/.push.json / env); friday `respond` now pushes (urgent) to the
   phone alongside the desktop toast. Fail-soft/inert until configured. (10 tests)
+- [x] dashboard/ (2026-07-08) — always-open PySide6 control deck: real embedded
+  terminal (pywinpty PTY → pyte HistoryScreen, 5000-line wheel/Shift+PgUp
+  scrollback), live CPU/RAM/battery + kill-switch status, one-click app
+  launchers, power + FRIDAY scene buttons (confirm-gated), dark theme + Win11
+  dark title bar, closes-to-tray always-open behavior, single-instance lock,
+  Desktop-shortcut installer (pythonw, no console). GUI-only deps isolated in
+  requirements-dashboard.txt so the headless hub stays lean.
 
 ## NEEDS-YOU (blocked on the user — building around these)
 - [ ] `pip install pywemo` to activate real Wemo smart-home discovery
@@ -238,3 +245,8 @@ philosophy). Depends on the security.py read-only scanner above (built first).
   input-driven cases: system --sample now clamps to SAMPLE_MAX (verified 99999s
   -> 10s) and screen._unique_path has a UNIQUE_CAP ceiling. test_bounds.py (12)
   guards the constants. 237 green. ** ALL PHASES 1-5 DONE except NEEDS-YOU. **
+- 2026-07-08: dashboard/ shipped (user-requested) — always-open PySide6 control
+  deck: embedded PTY terminal with scrollback, live stats + kill-switch status,
+  app launcher + power/FRIDAY buttons, tray + single-instance, Desktop-shortcut
+  installer. Verified live on the box (terminal I/O + ANSI color + scrollback,
+  app launch, tray persistence). GUI deps kept out of requirements.txt.

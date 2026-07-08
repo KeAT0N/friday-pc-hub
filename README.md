@@ -543,6 +543,32 @@ result limit). `stage` validates containment + size and returns sha256; the
 operator then pulls the staged file (e.g. `scp` over the SSH channel, or
 Claude's native file channel when it is driving).
 
+## Dashboard GUI (`dashboard/`)
+
+```
+python -m pip install -r requirements-dashboard.txt   # PySide6, pywinpty, pyte — GUI-only extras
+python -m dashboard.install_shortcut                  # one-time: Desktop shortcut (pythonw, no console)
+python -m dashboard.main                              # or run it from a terminal
+```
+
+An always-open desktop window: a real embedded terminal (pywinpty spawns
+PowerShell, `pyte` emulates the VT100 stream so PSReadLine's in-place redraws
+and colors render correctly, `QPainter` draws the resulting cell buffer) plus
+a sidebar — live CPU/RAM/battery stats + kill-switch status on a 2s timer,
+**Apps** (one-click launch via `hub.apps`'s alias table), and **Power /
+FRIDAY** controls. Dark-themed throughout (QSS + native Win11 dark title
+bar). Closing the window hides it to a system tray icon instead of quitting,
+so the shell session and its state persist; use the tray icon's context menu
+to actually quit. A `QLockFile` makes it single-instance — double-clicking
+the shortcut while it's already running just tells you it's in the tray.
+
+Power actions (lock/monitor-off/sleep) call `hub.power`'s effect helpers
+in-process behind the same `assert_alive()` kill-switch gate the CLI uses,
+plus a confirm dialog. FRIDAY scenes shell out to `python -m hub.friday
+trigger <scene>` instead of importing — `friday.py`'s dispatch path calls
+`sys.exit()` internally, which would kill the GUI process if invoked
+in-process.
+
 ## Driving the hub
 
 Two modes, same modules:
