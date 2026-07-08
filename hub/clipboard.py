@@ -161,6 +161,12 @@ def do_clear(args) -> None:
 # ---------------------------------------------------------------- cli
 
 def main() -> None:
+    try:  # SSH/non-interactive session -> run on the real desktop, then exit
+        from hub import desktop
+    except ImportError:
+        import desktop
+    desktop.ensure_desktop("clipboard", sys.argv[1:])
+
     p = argparse.ArgumentParser(prog="hub.clipboard", description=__doc__)
     sub = p.add_subparsers(dest="action", required=True)
 

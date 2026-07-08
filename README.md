@@ -18,6 +18,14 @@ hands** — no daemon, no custom RPC layer, no LLM logic in the scripts. Each is
 stateless CLI that performs one action and prints one JSON envelope. That split
 — smart brain, dumb hands — collapses most of the attack surface by construction.
 
+**GUI commands from the phone:** an SSH login lands in a *non-interactive*
+Windows session, separate from the logged-in desktop, so actions that touch the
+visible screen (open apps, move windows, media keys, screenshots) would fail or
+run invisibly. `hub/desktop.py` bridges them transparently: those modules detect
+the non-interactive session and hand the command to an on-demand Scheduled Task
+running in session 1, which executes it on the real desktop and relays the JSON
+back. One-time setup: `hub desktop install --confirm` (no admin needed).
+
 This README is the execution-model contract: whoever operates the hub — you at
 the terminal, or a Claude session — should drive it the same way.
 
@@ -140,6 +148,25 @@ process matches — never force-kills, so unsaved-work windows are reported kept
 `close (--title|--pid|--hwnd)` closes one window and escalates only with
 `--force`. Launcher pid often ≠ app pid (UWP brokers); ambiguous precise
 matches error out listing candidate hwnds.
+
+### hub/desktop.py — interactive-session bridge
+
+```
+python hub\desktop.py status                 registered? am I interactive?
+python hub\desktop.py install   [--confirm]  register the bridge task (dry-run default)
+python hub\desktop.py uninstall [--confirm]
+python hub\desktop.py run <module> <args>    explicitly bridge one command
+```
+
+Notes: GUI modules (apps, window, media, screen, clipboard) call
+`ensure_desktop()` at the top of `main()`. When already in the interactive
+session it's a no-op (runs normally); over SSH it writes the request to a
+gitignored queue file, triggers the `RemoteHubDesktop` Scheduled Task (which
+runs `desktop worker` in session 1 via `InteractiveToken`), waits for the
+result, and relays the module's envelope verbatim. Session detection uses
+`WTSGetActiveConsoleSessionId` vs the process session id. The task is on-demand
+(no trigger), hidden, least-privilege, and registers without admin. If it isn't
+installed, bridged commands fail loudly telling you to run `desktop install`.
 
 ### hub/credentials.py — secret boundary (existence-only CLI)
 

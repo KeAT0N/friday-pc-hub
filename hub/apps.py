@@ -447,6 +447,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    try:  # SSH/non-interactive session -> run on the real desktop, then exit
+        from hub import desktop
+    except ImportError:
+        import desktop
+    desktop.ensure_desktop("apps", sys.argv[1:])
+
     args = build_parser().parse_args()
     if args.action == "focus" and not any(
             v is not None for v in (args.title, args.pid, args.hwnd)):
